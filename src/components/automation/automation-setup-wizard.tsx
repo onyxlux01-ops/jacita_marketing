@@ -12,7 +12,7 @@ import {
   AUTOMATION_GOAL_OPTIONS,
   CONTENT_PREFERENCE_OPTIONS,
   type AutomationMode,
-} from "@/lib/automation";
+} from "@/lib/automation/settings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
