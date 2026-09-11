@@ -1,3 +1,4 @@
+/** Server-only automation barrel. Prefer leaf imports from client components. */
 export {
   runAutomationForOrganisation,
   runAutomationForAllEnabled,

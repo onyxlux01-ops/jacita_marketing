@@ -268,15 +268,41 @@ export async function runAutomationForOrganisation(input: {
           status: insights.demo ? "fallback" : "success",
           model: insights.model,
         });
+        if (insights.demo) {
+          const detail =
+            "detail" in insights && typeof insights.detail === "string"
+              ? insights.detail
+              : "OpenAI unavailable; using demo insights.";
+          await logAutomationActivity(admin, {
+            organisationId,
+            runId,
+            eventType: "ai_fallback",
+            message: detail.slice(0, 240),
+            severity: "warning",
+            metadata: {
+              reason:
+                "reason" in insights ? insights.reason : "api_error",
+            },
+          });
+          if (
+            "reason" in insights &&
+            (insights.reason === "billing" ||
+              insights.reason === "missing_key" ||
+              insights.reason === "invalid_key")
+          ) {
+            errors.push(detail);
+          }
+        }
         await logAutomationActivity(admin, {
           organisationId,
           runId,
           eventType: "learning",
           message: learningNote.slice(0, 240),
-          severity: "success",
+          severity: insights.demo ? "warning" : "success",
           metadata: {
             confidence: insights.data.insights?.[0]?.confidence || null,
             evidence: insights.data.summary?.slice(0, 200) || null,
+            demo: insights.demo,
           },
         });
         actionsTaken += 1;
@@ -489,6 +515,32 @@ export async function runAutomationForOrganisation(input: {
             model: generated.model,
           });
 
+          if (generated.demo) {
+            const detail =
+              "detail" in generated && typeof generated.detail === "string"
+                ? generated.detail
+                : "OpenAI unavailable; content used demo fallback.";
+            await logAutomationActivity(admin, {
+              organisationId,
+              runId,
+              eventType: "ai_fallback",
+              message: detail.slice(0, 240),
+              severity: "warning",
+              metadata: {
+                reason:
+                  "reason" in generated ? generated.reason : "api_error",
+                platform,
+              },
+            });
+            if (
+              "reason" in generated &&
+              (generated.reason === "billing" ||
+                generated.reason === "missing_key" ||
+                generated.reason === "invalid_key")
+            ) {
+              errors.push(detail);
+            }
+          }
           // Validate
           await setAutomationState(
             admin,

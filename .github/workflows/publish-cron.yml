@@ -1,0 +1,51 @@
+# Minute-level crons (Vercel Hobby only allows daily schedules).
+# Requires repo secret CRON_SECRET matching production.
+name: publish-cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger publish-due
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "Missing GitHub secret CRON_SECRET"
+            exit 1
+          fi
+          BASE="${APP_URL:-https://jacita-marketing.vercel.app}"
+          BASE="${BASE%/}"
+          echo "Calling ${BASE}/api/cron/publish-due"
+          curl -fsS -X GET \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/cron/publish-due"
+          echo
+
+      - name: Trigger automation (top of hour or manual)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          MINUTE=$(date -u +%M)
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] && [ "$MINUTE" != "00" ]; then
+            echo "Skipping automation (minute=$MINUTE)"
+            exit 0
+          fi
+          BASE="${APP_URL:-https://jacita-marketing.vercel.app}"
+          BASE="${BASE%/}"
+          echo "Calling ${BASE}/api/cron/automation"
+          curl -fsS -X GET \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/cron/automation"
+          echo

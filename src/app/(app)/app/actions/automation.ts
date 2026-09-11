@@ -1,17 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
+import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   ensureAutomationSettings,
   modeToOrgAutopilot,
-  runAutomationForOrganisation,
-  getOrgSetupReadiness,
   logAutomationActivity,
   type AutomationMode,
   type AiFreedomLevel,
-} from "@/lib/automation";
+} from "@/lib/automation/settings";
+import {
+  runAutomationForOrganisation,
+  getOrgSetupReadiness,
+} from "@/lib/automation/engine";
 import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
 import { notifyAutomationIssue } from "@/lib/automation/notify";
 import type { Json } from "@/lib/database.types";

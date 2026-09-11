@@ -1,5 +1,6 @@
+import "server-only";
+
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 
 /**
  * Create a time-limited signed URL for platform pull-from-URL publishing.
@@ -35,8 +36,8 @@ export async function resolveContentMediaForPublish(input: {
   mediaAssetId: string | null;
 }) {
   if (!input.mediaAssetId) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("media_assets")
     .select("id, organisation_id, storage_path, media_type, description")
     .eq("id", input.mediaAssetId)

@@ -21,6 +21,7 @@ import {
 } from "@/lib/automation";
 import { getPublishingDashboard } from "@/lib/social/publishing-dashboard";
 import { getMetaSurfaceForOrganisation } from "@/lib/ads/service";
+import { getAiProviderHealth } from "@/lib/ai";
 import {
   getActiveOrganisation,
   getUserOrganisations,
@@ -60,6 +61,7 @@ export default async function AutomationPage() {
     publishing,
     { data: orgTz },
     metaSurface,
+    aiHealth,
   ] = await Promise.all([
     getAutomationStatus(supabase, active.id),
     getCurrentAIActivity(supabase, active.id),
@@ -79,33 +81,41 @@ export default async function AutomationPage() {
       .eq("id", active.id)
       .maybeSingle(),
     getMetaSurfaceForOrganisation(active.id).catch(() => null),
+    getAiProviderHealth(),
   ]);
 
+  const attentionWithAi = aiHealth.live
+    ? attention
+    : [
+        {
+          id: "openai-provider",
+          kind: "openai" as const,
+          title:
+            aiHealth.reason === "billing"
+              ? "OpenAI needs credits"
+              : "OpenAI is not live",
+          detail: aiHealth.message,
+          href: "https://platform.openai.com/settings/organization/billing/",
+        },
+        ...attention,
+      ];
+
   return (
-    <div className="jacita-page jacita-enter max-w-4xl">
-      <header className="mb-8 space-y-3">
-        <div className="hidden lg:block">
-          <BusinessSwitcher
-            organisations={orgs}
-            active={active}
-            variant="page"
-          />
-        </div>
-        <div className="lg:hidden">
-          <BusinessSwitcher
-            organisations={orgs}
-            active={active}
-            variant="page"
-          />
-        </div>
+    <div className="jacita-page jacita-enter max-w-6xl pb-8">
+      <header className="space-y-3">
+        <BusinessSwitcher
+          organisations={orgs}
+          active={active}
+          variant="page"
+        />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
               Control centre
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              See what AI is doing for {active.name}, what happens next, and
-              whether you are needed.
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              What AI is doing for {active.name}, what publishes next, and when
+              you are needed.
             </p>
           </div>
           <Link
@@ -127,18 +137,20 @@ export default async function AutomationPage() {
         initialPublished={published}
         initialInsights={insights}
         initialTimeline={timeline}
-        initialAttention={attention}
+        initialAttention={attentionWithAi}
         initialHealth={health}
         readiness={readiness}
+        metaSurface={metaSurface}
+        aiHealth={aiHealth}
       />
 
       {metaSurface ? (
-        <div className="mt-10">
+        <div className="border-t border-border/70 pt-8">
           <MetaConnectionsPanel surface={metaSurface} />
         </div>
       ) : null}
 
-      <div className="mt-12 border-t border-border/70 pt-10">
+      <div className="border-t border-border/70 pt-8">
         <PublishingReliabilityPanel
           organisationId={active.id}
           timezone={orgTz?.timezone || "Europe/London"}

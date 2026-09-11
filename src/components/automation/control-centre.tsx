@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
@@ -16,8 +16,19 @@ import {
   skipContent,
   runAutomationNow,
 } from "@/app/(app)/app/actions/automation";
+import {
+  Activity,
+  AlertTriangle,
+  CalendarDays,
+  Pause,
+  Play,
+  Square,
+  Zap,
+} from "lucide-react";
 import { SocialPreview } from "@/components/content/social-preview";
 import { PlatformPill } from "@/components/content/platform-icons";
+import type { MetaSurfaceSnapshot } from "@/components/automation/meta-connections-panel";
+import type { AiProviderHealth } from "@/lib/ai";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -133,9 +144,9 @@ const MODE_COPY: Record<
 function whenLabel(iso: string | null) {
   if (!iso) return "Soon";
   const d = new Date(iso);
-  if (isToday(d)) return `Today · ${format(d, "HH:mm")}`;
-  if (isTomorrow(d)) return `Tomorrow · ${format(d, "HH:mm")}`;
-  return format(d, "EEE d MMM · HH:mm");
+  if (isToday(d)) return `Today Â· ${format(d, "HH:mm")}`;
+  if (isTomorrow(d)) return `Tomorrow Â· ${format(d, "HH:mm")}`;
+  return format(d, "EEE d MMM Â· HH:mm");
 }
 
 function contentTypeLabel(type: string | null) {
@@ -156,6 +167,8 @@ export function AutomationControlCentre({
   initialAttention,
   initialHealth,
   readiness,
+  metaSurface = null,
+  aiHealth = null,
 }: {
   businessName: string;
   initialStatus: StatusSnapshot;
@@ -172,6 +185,8 @@ export function AutomationControlCentre({
     ready: boolean;
     checks: Array<{ id: string; label: string; ok: boolean }>;
   };
+  metaSurface?: MetaSurfaceSnapshot | null;
+  aiHealth?: AiProviderHealth | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -239,7 +254,7 @@ export function AutomationControlCentre({
     initialHealth,
   ]);
 
-  // Realtime — refresh when this business changes
+  // Realtime - refresh when this business changes
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -297,140 +312,154 @@ export function AutomationControlCentre({
 
   const showEmptySetup = !status.setupCompletedAt && !status.active;
 
-  const scheduleBuckets = useMemo(() => {
-    const today: UpcomingContentItem[] = [];
-    const tomorrow: UpcomingContentItem[] = [];
-    const week: UpcomingContentItem[] = [];
+  const weekStrip = useMemo(() => {
     const start = startOfDay(new Date());
-    const endTomorrow = addDays(start, 2);
-    const endWeek = addDays(start, 7);
-    for (const item of upcoming.filter((u) => u.status === "scheduled")) {
-      const t = new Date(item.scheduled_at || item.suggested_posting_time || 0);
-      if (isToday(t)) today.push(item);
-      else if (isTomorrow(t)) tomorrow.push(item);
-      else if (t >= endTomorrow && t < endWeek) week.push(item);
-    }
-    return { today, tomorrow, week };
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = addDays(start, i);
+      const dayMs = day.getTime();
+      const items = upcoming.filter((u) => {
+        const raw = u.scheduled_at || u.suggested_posting_time;
+        if (!raw) return false;
+        return startOfDay(new Date(raw)).getTime() === dayMs;
+      });
+      return { day, items, isToday: i === 0 };
+    });
   }, [upcoming]);
 
+  const ads = metaSurface?.advertising;
+  const adConnected =
+    metaSurface?.adAccount && metaSurface.adAccount.connected === true
+      ? metaSurface.adAccount
+      : null;
+
   return (
-    <div className="space-y-10 lg:space-y-12">
-      {/* Hero status */}
-      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card px-5 py-6 sm:px-8 sm:py-8">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(15,118,110,0.06),transparent_55%)]" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1">
-            <p className="jacita-label">AI marketing</p>
-            <div className="mt-3 flex items-center gap-3">
+    <div className="relative space-y-9 pb-32 lg:space-y-11">
+      {aiHealth && !aiHealth.live ? (
+        <section
+          className="rounded-xl border border-amber-500/35 bg-amber-50/80 px-4 py-3.5 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+          role="status"
+        >
+          <p className="font-medium">
+            {aiHealth.reason === "billing"
+              ? "OpenAI credits required"
+              : "OpenAI is not live"}
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed opacity-90">
+            {aiHealth.message} Automation can still run, but content and
+            insights will use safe demo fallbacks until OpenAI is available.
+          </p>
+          {aiHealth.reason === "billing" || aiHealth.reason === "invalid_key" ? (
+            <a
+              href="https://platform.openai.com/settings/organization/billing/"
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex text-[13px] font-medium underline underline-offset-2"
+            >
+              Open OpenAI billing
+            </a>
+          ) : null}
+        </section>
+      ) : aiHealth?.live ? (
+        <p className="text-xs text-muted-foreground">
+          OpenAI live · {aiHealth.model}
+        </p>
+      ) : null}
+
+      {/* Asymmetric status hero + compact metrics */}
+      <section className="jacita-stage jacita-enter rounded-2xl px-5 py-6 sm:px-8 sm:py-8">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,color-mix(in_oklab,var(--primary)_7%,transparent),transparent_58%)]" />
+        <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.8fr)] lg:items-end">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Activity
+                className={cn(
+                  "size-4 shrink-0",
+                  status.hero.tone === "active" && "text-primary",
+                  status.hero.tone === "paused" && "text-amber-600",
+                  status.hero.tone === "off" && "text-muted-foreground"
+                )}
+                aria-hidden
+              />
+              <p className="text-sm text-muted-foreground">{businessName}</p>
+            </div>
+            <div className="mt-3 flex items-start gap-3">
               <span
                 className={cn(
-                  "inline-flex size-2.5 shrink-0 rounded-full",
+                  "mt-2.5 inline-flex size-2.5 shrink-0 rounded-full",
                   status.hero.tone === "active" &&
-                    "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.18)] animate-pulse",
+                    "bg-emerald-500 shadow-[0_0_0_4px_color-mix(in_oklab,rgb(16,185,129)_22%,transparent)]",
                   status.hero.tone === "paused" && "bg-amber-500",
                   status.hero.tone === "off" && "bg-muted-foreground/40"
                 )}
                 aria-hidden
               />
-              <h2 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
-                {status.hero.title}
-              </h2>
+              <div>
+                <h2 className="font-heading text-[1.65rem] font-semibold leading-[1.15] tracking-tight sm:text-[1.85rem]">
+                  {status.hero.title}
+                </h2>
+                <p className="mt-2 max-w-[42ch] text-[15px] leading-relaxed text-muted-foreground">
+                  {status.hero.subtitle}
+                </p>
+              </div>
             </div>
-            <p className="mt-2 max-w-xl text-[15px] text-muted-foreground">
-              {status.hero.subtitle}
-            </p>
-
-            <dl className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <dt className="text-xs text-muted-foreground">Currently</dt>
-                <dd className="mt-1 text-sm font-medium leading-snug">
+            <div
+              className="mt-6 flex flex-wrap gap-x-8 gap-y-2 text-sm"
+              aria-live="polite"
+            >
+              <p>
+                <span className="text-muted-foreground">Currently </span>
+                <span className="font-medium text-foreground">
                   {activity.label}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Next</dt>
-                <dd className="mt-1 text-sm font-medium leading-snug">
+                </span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Next </span>
+                <span className="font-medium text-foreground">
                   {status.nextLabel}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Scheduled</dt>
-                <dd className="mt-1 font-heading text-xl font-semibold">
-                  {status.scheduledCount}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    posts
-                  </span>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Published</dt>
-                <dd className="mt-1 font-heading text-xl font-semibold">
-                  {status.publishedThisWeek}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    this week
-                  </span>
-                </dd>
-              </div>
-            </dl>
+                </span>
+              </p>
+            </div>
           </div>
 
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[200px]">
-            {status.paused || !status.active ? (
-              <Button
-                size="lg"
-                className="w-full"
-                disabled={pending}
-                onClick={() => setResumeOpen(true)}
-              >
-                Resume automation
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full border-amber-600/40 text-amber-900 hover:bg-amber-50"
-                disabled={pending}
-                onClick={() => setPauseOpen(true)}
-              >
-                Pause automation
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={pending || status.mode === "off"}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await runAutomationNow(orgId);
-                  if ("error" in res && res.error) toast.error(res.error);
-                  else {
-                    toast.success("AI is running a fresh cycle");
-                    router.refresh();
-                  }
-                })
+          <div
+            className="jacita-metric-strip grid-cols-2 sm:grid-cols-4 lg:grid-cols-2"
+            role="group"
+            aria-label="Automation metrics"
+          >
+            <MetricCell
+              label="Scheduled"
+              value={String(status.scheduledCount)}
+              hint="in pipeline"
+            />
+            <MetricCell
+              label="Published"
+              value={String(status.publishedThisWeek)}
+              hint="this week"
+            />
+            <MetricCell
+              label="Attention"
+              value={String(attention.length)}
+              hint={attention.length ? "needs you" : "clear"}
+              tone={attention.length ? "warn" : "ok"}
+            />
+            <MetricCell
+              label="Health"
+              value={health.label}
+              hint={status.mode === "off" ? "off" : status.mode}
+              tone={
+                health.status === "critical"
+                  ? "bad"
+                  : health.status === "attention"
+                    ? "warn"
+                    : "ok"
               }
-            >
-              Run cycle now
-            </Button>
-            <p className="text-center text-[11px] text-muted-foreground">
-              Health ·{" "}
-              <span
-                className={cn(
-                  "font-medium",
-                  health.status === "healthy" && "text-emerald-700",
-                  health.status === "attention" && "text-amber-700",
-                  health.status === "critical" && "text-red-700"
-                )}
-              >
-                {health.label}
-              </span>
-            </p>
+            />
           </div>
         </div>
       </section>
 
       {showEmptySetup ? (
-        <section className="rounded-2xl border border-dashed border-border px-5 py-8 text-center sm:px-8">
+        <section className="rounded-xl border border-dashed border-border px-5 py-8 text-center sm:px-8">
           <h3 className="font-heading text-xl font-semibold">
             Your AI marketing isn&apos;t set up yet
           </h3>
@@ -466,11 +495,79 @@ export function AutomationControlCentre({
         </section>
       ) : null}
 
-      {/* AI working on + decision */}
-      <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+            {/* Week strip - operational calendar */}
+      <section className="jacita-enter-delay-1 space-y-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="font-heading text-lg font-semibold tracking-tight">
+            This week
+          </h3>
+        </div>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x">
+          {weekStrip.map(({ day, items, isToday: today }) => (
+            <div
+              key={day.toISOString()}
+              className={cn(
+                "jacita-day-chip",
+                today && "jacita-day-chip-today"
+              )}
+            >
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground">
+                {format(day, "EEE")}
+              </p>
+              <p className="font-heading text-base font-semibold tabular-nums tracking-tight">
+                {format(day, "d")}
+              </p>
+              <ul className="mt-2 min-h-[4.75rem] space-y-1.5">
+                {items.length === 0 ? (
+                  <li className="text-[11px] text-muted-foreground/65">Open</li>
+                ) : (
+                  items.slice(0, 3).map((item) => (
+                    <li key={item.id}>
+                      <Link
+                        href={`/app/content/${item.id}`}
+                        className="jacita-press block rounded-lg bg-muted/55 px-1.5 py-1.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <span className="block font-mono text-[10px] tabular-nums text-muted-foreground">
+                          {item.scheduled_at
+                            ? format(new Date(item.scheduled_at), "HH:mm")
+                            : "--:--"}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1">
+                          {item.platforms[0] ? (
+                            <PlatformPill
+                              platform={
+                                item.platforms[0] as
+                                  | "instagram"
+                                  | "facebook"
+                                  | "tiktok"
+                              }
+                            />
+                          ) : null}
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-foreground/90">
+                          {item.hook || item.title || "Post"}
+                        </span>
+                      </Link>
+                    </li>
+                  ))
+                )}
+                {items.length > 3 ? (
+                  <li className="text-[10px] tabular-nums text-muted-foreground">
+                    +{items.length - 3} more
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+{/* Ops grid: AI activity + Meta ads snapshot */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <section className="space-y-3">
           <h3 className="font-heading text-lg font-semibold">AI is working on</h3>
-          <div className="rounded-xl border border-border/70 bg-card px-4 py-4">
+          <div className="jacita-panel rounded-xl px-4 py-4">
             <p className="text-[15px] font-medium">{activity.label}</p>
             {activity.detail ? (
               <p className="mt-1 text-sm text-muted-foreground">
@@ -507,88 +604,153 @@ export function AutomationControlCentre({
                     <span>{q.label}</span>
                     <span className="text-xs text-muted-foreground">
                       {q.status === "done"
-                        ? "✓"
+                        ? "done"
                         : q.status === "active"
-                          ? "…"
+                          ? "active"
                           : q.status === "failed"
-                            ? "!"
-                            : "—"}
+                            ? "failed"
+                            : "queued"}
                     </span>
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-        </section>
 
-        <section className="space-y-3">
-          <h3 className="font-heading text-lg font-semibold">AI decision</h3>
           {status.decision ? (
-            <div className="rounded-xl border border-border/70 bg-card px-4 py-4 space-y-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Decision</p>
-                <p className="mt-1 text-[15px] font-medium">
-                  {status.decision.decision}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Why?</p>
-                <p className="mt-1 text-sm leading-relaxed text-foreground/85">
-                  {status.decision.why}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Action</p>
-                <p className="mt-1 text-sm font-medium">{status.decision.action}</p>
-              </div>
+            <div className="jacita-panel space-y-3 rounded-xl px-4 py-4">
+              <p className="text-xs font-medium text-muted-foreground">
+                Latest decision
+              </p>
+              <p className="text-[15px] font-medium">{status.decision.decision}</p>
+              <p className="text-sm leading-relaxed text-foreground/85">
+                {status.decision.why}
+              </p>
+              <p className="text-sm font-medium">{status.decision.action}</p>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Decisions appear after AI reviews performance for {businessName}.
-            </p>
-          )}
+          ) : null}
         </section>
-      </div>
 
-      {/* Needs attention */}
-      <section className="space-y-3">
-        <h3 className="font-heading text-lg font-semibold">Needs your attention</h3>
-        {attention.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nothing needs your attention.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border/70 border-y border-border/70">
-            {attention.map((item) => (
-              <li
-                key={item.id}
-                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="text-sm font-medium">{item.title}</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {item.detail}
-                  </p>
+        <div className="space-y-6">
+          {/* Meta ads snapshot - not full Ads Manager */}
+          {metaSurface ? (
+            <section className="space-y-3">
+              <div className="flex items-end justify-between gap-2">
+                <h3 className="font-heading text-lg font-semibold">Meta ads</h3>
+                <Link
+                  href="/app/social"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Manage connections
+                </Link>
+              </div>
+              <div className="jacita-panel divide-y divide-border/70 rounded-xl">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <span className="text-muted-foreground">Ad account</span>
+                  <span className="truncate font-medium">
+                    {adConnected
+                      ? adConnected.name || adConnected.externalId
+                      : "Not connected"}
+                  </span>
                 </div>
-                {item.href ? (
-                  <Link
-                    href={item.href}
-                    className="shrink-0 text-sm font-medium text-primary hover:underline"
+                <div className="grid grid-cols-2 gap-px bg-border/60">
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-[11px] text-muted-foreground">Mode</p>
+                    <p className="mt-0.5 text-sm font-medium capitalize">
+                      {ads?.mode || "approval"}
+                    </p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Active campaigns
+                    </p>
+                    <p className="mt-0.5 font-heading text-lg font-semibold">
+                      {ads?.activeCampaigns ?? 0}
+                    </p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Spend (7d)
+                    </p>
+                    <p className="mt-0.5 font-heading text-lg font-semibold tabular-nums">
+                      {((ads?.spend7d ?? 0) / 100).toLocaleString(undefined, {
+                        style: "currency",
+                        currency: adConnected?.currency || "USD",
+                        maximumFractionDigits: 0,
+                      })}
+                    </p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Pending approvals
+                    </p>
+                    <p className="mt-0.5 font-heading text-lg font-semibold tabular-nums">
+                      {ads?.pendingApprovals.length ?? 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="space-y-3">
+            <h3 className="font-heading text-lg font-semibold">
+              Needs your attention
+              {attention.length > 0 ? (
+                <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-800 tabular-nums">
+                  {attention.length}
+                </span>
+              ) : null}
+            </h3>
+            {attention.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing needs your attention.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border/70 border-y border-border/70">
+                {attention.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    Open
-                  </Link>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                    <div className="flex gap-2">
+                      <AlertTriangle
+                        className="mt-0.5 size-3.5 shrink-0 text-amber-600"
+                        aria-hidden
+                      />
+                      <div>
+                        <p className="text-sm font-medium">{item.title}</p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {item.detail}
+                        </p>
+                      </div>
+                    </div>
+                    {item.href ? (
+                      <Link
+                        href={item.href}
+                        className="shrink-0 text-sm font-medium text-primary hover:underline"
+                      >
+                        Open
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
 
       {/* Approval queue */}
       {status.mode === "approval" || approvals.length > 0 ? (
         <section className="space-y-4">
           <h3 className="font-heading text-lg font-semibold">
             Waiting for approval
+            {approvals.length > 0 ? (
+              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary tabular-nums">
+                {approvals.length}
+              </span>
+            ) : null}
           </h3>
           {approvals.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -599,7 +761,7 @@ export function AutomationControlCentre({
               {approvals.map((item) => (
                 <li
                   key={item.id}
-                  className="rounded-xl border border-border/70 bg-card p-3"
+                  className="jacita-panel rounded-xl p-3"
                 >
                   <SocialPreview
                     platform={item.platforms[0] || "instagram"}
@@ -620,7 +782,7 @@ export function AutomationControlCentre({
                           });
                           if ("error" in res && res.error) toast.error(res.error);
                           else {
-                            toast.success("Approved — queued to publish");
+                            toast.success("Approved - queued to publish");
                             router.refresh();
                           }
                         })
@@ -643,7 +805,7 @@ export function AutomationControlCentre({
                           });
                           if ("error" in res && res.error) toast.error(res.error);
                           else {
-                            toast.message("Rejected — AI will learn");
+                            toast.message("Rejected - AI will learn");
                             router.refresh();
                           }
                         })
@@ -659,25 +821,23 @@ export function AutomationControlCentre({
         </section>
       ) : null}
 
-      {/* Coming up */}
+      {/* Coming up list (detail beyond week strip) */}
       <section className="space-y-4">
-        <div className="flex items-end justify-between gap-3">
-          <h3 className="font-heading text-lg font-semibold">Coming up</h3>
-        </div>
+        <h3 className="font-heading text-lg font-semibold">Coming up</h3>
         {upcoming.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No upcoming posts yet. Start or resume automation to fill the pipeline.
           </p>
         ) : (
           <ul className="divide-y divide-border/70 border-y border-border/70">
-            {upcoming.slice(0, 10).map((item) => (
+            {upcoming.slice(0, 8).map((item) => (
               <li
                 key={item.id}
                 className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 text-left"
+                  className="min-w-0 flex-1 cursor-pointer text-left"
                   onClick={() => setPreviewId(item.id)}
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -690,7 +850,7 @@ export function AutomationControlCentre({
                       {contentTypeLabel(item.content_type)}
                     </span>
                     <span className="text-xs capitalize text-muted-foreground">
-                      · {item.status}
+                      Â· {item.status}
                     </span>
                   </div>
                   <p className="mt-1 truncate text-sm font-medium">
@@ -698,7 +858,7 @@ export function AutomationControlCentre({
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {whenLabel(item.scheduled_at || item.suggested_posting_time)}
-                    {item.service_name ? ` · ${item.service_name}` : ""}
+                    {item.service_name ? ` Â· ${item.service_name}` : ""}
                   </p>
                 </button>
                 <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -720,7 +880,7 @@ export function AutomationControlCentre({
                         });
                         if ("error" in res && res.error) toast.error(res.error);
                         else {
-                          toast.message("Skipped — will not publish");
+                          toast.message("Skipped - will not publish");
                           router.refresh();
                         }
                       })
@@ -735,52 +895,8 @@ export function AutomationControlCentre({
         )}
       </section>
 
-      {/* Schedule strip */}
-      <section className="space-y-4">
-        <h3 className="font-heading text-lg font-semibold">Schedule</h3>
-        <div className="grid gap-6 sm:grid-cols-3">
-          {(
-            [
-              ["Today", scheduleBuckets.today],
-              ["Tomorrow", scheduleBuckets.tomorrow],
-              ["This week", scheduleBuckets.week],
-            ] as const
-          ).map(([label, items]) => (
-            <div key={label}>
-              <p className="text-xs font-medium text-muted-foreground">{label}</p>
-              {items.length === 0 ? (
-                <p className="mt-2 text-sm text-muted-foreground">—</p>
-              ) : (
-                <ul className="mt-2 space-y-2">
-                  {items.slice(0, 4).map((item) => (
-                    <li key={item.id} className="text-sm">
-                      <Link
-                        href={`/app/content/${item.id}`}
-                        className="hover:text-primary"
-                      >
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {item.scheduled_at
-                            ? format(new Date(item.scheduled_at), "HH:mm")
-                            : "--:--"}
-                        </span>{" "}
-                        <span className="capitalize">
-                          {item.platforms[0] || "post"}
-                        </span>
-                        <span className="block truncate text-muted-foreground">
-                          {item.hook || item.title}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Published + learned */}
-      <div className="grid gap-10 lg:grid-cols-2">
+      <div className="grid gap-8 lg:grid-cols-2">
         <section className="space-y-3">
           <h3 className="font-heading text-lg font-semibold">
             Recently published
@@ -809,7 +925,7 @@ export function AutomationControlCentre({
                         {item.published_at
                           ? whenLabel(item.published_at)
                           : "Published"}{" "}
-                        · Published ✓
+                        Â· Published
                       </span>
                     </div>
                     <p className="mt-1 font-medium">
@@ -859,7 +975,7 @@ export function AutomationControlCentre({
             Automation activity will show here as AI works.
           </p>
         ) : (
-          <ol className="relative space-y-0 border-l border-border/80 ml-1.5">
+          <ol className="relative ml-1.5 space-y-0 border-l border-border/80">
             {timeline.map((row) => (
               <li key={row.id} className="relative pb-5 pl-5">
                 <span
@@ -896,7 +1012,7 @@ export function AutomationControlCentre({
                 disabled={pending}
                 onClick={() => setModeOpen(id)}
                 className={cn(
-                  "rounded-xl border px-4 py-3 text-left transition-colors",
+                  "jacita-press cursor-pointer rounded-xl border px-4 py-3.5 text-left transition-colors",
                   status.mode === id
                     ? "border-primary bg-primary/5"
                     : "border-border/70 hover:bg-muted/40"
@@ -913,13 +1029,13 @@ export function AutomationControlCentre({
       </section>
 
       {/* Settings */}
-      <section className="space-y-6 rounded-2xl border border-border/70 bg-card p-5 sm:p-6">
+      <section className="jacita-panel space-y-6 rounded-xl p-5 sm:p-6">
         <div>
           <h3 className="font-heading text-lg font-semibold">
             Automation settings
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Preferences and constraints. AI optimises within these rules —
+            Preferences and constraints. AI optimises within these rules -
             guardrails always apply.
           </p>
         </div>
@@ -935,7 +1051,7 @@ export function AutomationControlCentre({
                 type="button"
                 onClick={() => setGoals(toggle(goals, g.id))}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs",
+                  "cursor-pointer rounded-full border px-3 py-1.5 text-xs",
                   goals.includes(g.id)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
@@ -956,7 +1072,7 @@ export function AutomationControlCentre({
                 type="button"
                 onClick={() => setPlatforms(toggle(platforms, p))}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs capitalize",
+                  "cursor-pointer rounded-full border px-3 py-1.5 text-xs capitalize",
                   platforms.includes(p)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
@@ -1015,7 +1131,7 @@ export function AutomationControlCentre({
                 type="button"
                 onClick={() => setPrefs(toggle(prefs, p.id))}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs",
+                  "cursor-pointer rounded-full border px-3 py-1.5 text-xs",
                   prefs.includes(p.id)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
@@ -1044,7 +1160,7 @@ export function AutomationControlCentre({
                 type="button"
                 onClick={() => setFreedom(id)}
                 className={cn(
-                  "rounded-xl border px-3 py-2.5 text-left",
+                  "cursor-pointer rounded-xl border px-3 py-2.5 text-left",
                   freedom === id
                     ? "border-primary bg-primary/5"
                     : "border-border/70"
@@ -1083,18 +1199,82 @@ export function AutomationControlCentre({
           >
             Save settings
           </Button>
-          <Button
-            variant="outline"
-            className="border-red-300 text-red-800 hover:bg-red-50"
-            disabled={pending}
-            onClick={() => setStopOpen(true)}
-          >
-            Stop all automation
-          </Button>
         </div>
       </section>
 
-      {/* Dialogs */}
+            {/* Slim frosted command dock - signature material, no glow */}
+      <div
+        className="jacita-dock fixed inset-x-0 bottom-0 z-40 border-t border-border/60 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        role="region"
+        aria-label="AI automation controls"
+      >
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium tracking-tight">
+              <span className="text-muted-foreground">AI is </span>
+              {activity.label}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {status.nextLabel}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending || status.mode === "off"}
+              className="jacita-press h-11 min-w-[7.5rem] cursor-pointer sm:h-9 sm:min-w-0"
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await runAutomationNow(orgId);
+                  if ("error" in res && res.error) toast.error(res.error);
+                  else {
+                    toast.success("AI is running a fresh cycle");
+                    router.refresh();
+                  }
+                })
+              }
+            >
+              <Zap className="size-3.5" aria-hidden />
+              Run cycle
+            </Button>
+            {status.paused || !status.active ? (
+              <Button
+                size="sm"
+                disabled={pending}
+                className="jacita-press h-11 min-w-[7.5rem] cursor-pointer sm:h-9 sm:min-w-0"
+                onClick={() => setResumeOpen(true)}
+              >
+                <Play className="size-3.5" aria-hidden />
+                Resume
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                className="jacita-press h-11 min-w-[7.5rem] cursor-pointer border-amber-600/35 text-amber-950 hover:bg-amber-50 sm:h-9 sm:min-w-0"
+                onClick={() => setPauseOpen(true)}
+              >
+                <Pause className="size-3.5" aria-hidden />
+                Pause
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              className="jacita-press h-11 cursor-pointer text-red-800 hover:bg-red-50 hover:text-red-900 sm:h-9"
+              onClick={() => setStopOpen(true)}
+            >
+              <Square className="size-3.5" aria-hidden />
+              Emergency stop
+            </Button>
+          </div>
+        </div>
+      </div>
+
+{/* Dialogs */}
       <Dialog open={pauseOpen} onOpenChange={setPauseOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1258,6 +1438,37 @@ export function AutomationControlCentre({
           ) : null}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MetricCell({
+  label,
+  value,
+  hint,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: "neutral" | "ok" | "warn" | "bad";
+}) {
+  return (
+    <div className="bg-card px-3.5 py-3.5 sm:px-4">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-1.5 font-heading text-xl font-semibold leading-none tracking-tight tabular-nums",
+          tone === "ok" && "text-emerald-700",
+          tone === "warn" && "text-amber-800",
+          tone === "bad" && "text-red-700"
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+        {hint}
+      </p>
     </div>
   );
 }

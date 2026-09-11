@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "db:start": "supabase start --ignore-health-check -x logflare,vector",
@@ -16,6 +16,8 @@
     "test:meta": "node scripts/meta-isolation-ads-unit.mjs",
     "test:meta-suite": "node scripts/meta-completion-suite.mjs",
     "check:social": "node scripts/check-social-config.mjs",
+    "check:openai": "node --env-file=.env.local scripts/check-openai.mjs",
+    "cleanup:test-artifacts": "node --env-file=.env.local scripts/cleanup-test-artifacts.mjs",
     "verify:meta-live": "node --env-file=.env.local scripts/meta-live-verify.mjs"
   },
   "dependencies": {
@@ -33,6 +35,7 @@
     "react": "19.2.8",
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
     "shadcn": "^4.20.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",

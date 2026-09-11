@@ -24,7 +24,8 @@ export type AttentionItem = {
     | "social"
     | "publish_failed"
     | "automation_error"
-    | "setup";
+    | "setup"
+    | "openai";
   title: string;
   detail: string;
   href?: string;

@@ -24,4 +24,5 @@ export { validateContent } from "@/lib/ai/validate";
 export { interpretAssistantRequest } from "@/lib/ai/assistant";
 export { recordAiGeneration } from "@/lib/ai/history";
 export { requireOrgAccess } from "@/lib/ai/auth";
-export { hasOpenAIKey } from "@/lib/ai/model";
+export { hasOpenAIKey, getAiProviderHealth } from "@/lib/ai/model";
+export type { AiProviderHealth, AiFallbackReason } from "@/lib/ai/model";

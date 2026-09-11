@@ -61,7 +61,7 @@ export function MetaConnectionsPanel({
   const ads = surface.advertising;
 
   return (
-    <section className="rounded-2xl border border-border/70 bg-card px-5 py-5 sm:px-6">
+    <section className="jacita-panel rounded-2xl px-5 py-5 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="jacita-label">Meta</p>

@@ -151,12 +151,42 @@
   .jacita-page {
     @apply mx-auto flex w-full max-w-6xl flex-col gap-9;
   }
+  .jacita-metric-strip {
+    @apply grid gap-px overflow-hidden rounded-xl border border-border/70 bg-border/70;
+  }
+  /* Press feedback — respond on pointer-down (Apple fluid) */
+  .jacita-press {
+    @apply transition-transform duration-100 ease-out active:scale-[0.98];
+  }
+  /* Command dock material — frosted hierarchy, solid fallback */
+  .jacita-dock {
+    background: color-mix(in oklab, var(--background) 78%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 55%, transparent),
+      0 -8px 32px color-mix(in oklab, var(--foreground) 6%, transparent);
+  }
+  .jacita-day-chip {
+    @apply flex min-w-[7.25rem] flex-1 flex-col rounded-xl border border-border/70 bg-card px-2.5 py-2.5 transition-colors;
+  }
+  .jacita-day-chip-today {
+    @apply border-primary/35 bg-primary/[0.06];
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .jacita-dock {
+    background: var(--background);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @keyframes jacita-fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -166,15 +196,31 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .jacita-enter {
-    animation: jacita-fade-up 0.45s ease-out both;
+    animation: jacita-fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .jacita-enter-delay-1 {
-    animation-delay: 60ms;
+    animation-delay: 50ms;
   }
   .jacita-enter-delay-2 {
-    animation-delay: 120ms;
+    animation-delay: 100ms;
   }
   .jacita-enter-delay-3 {
-    animation-delay: 180ms;
+    animation-delay: 150ms;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .jacita-enter,
+  .jacita-enter-delay-1,
+  .jacita-enter-delay-2,
+  .jacita-enter-delay-3 {
+    animation: none;
+  }
+  .jacita-press {
+    transition: none;
+  }
+  .jacita-press:active {
+    transform: none;
+  }
+}
+

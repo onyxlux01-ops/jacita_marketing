@@ -23,6 +23,9 @@ export default async function SocialAccountsPage({
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const redirects = oauthRedirectChecklist(appUrl);
+  const productionRedirects = oauthRedirectChecklist(
+    "https://jacita-marketing.vercel.app"
+  );
 
   let accounts: Array<{
     id: string;
@@ -160,6 +163,29 @@ export default async function SocialAccountsPage({
               <code className="font-mono text-xs">NEXT_PUBLIC_APP_URL</code> to
               that URL.
             </p>
+            <div className="mt-3 space-y-1">
+              <p className="text-xs font-medium text-foreground">
+                Production OAuth redirect URIs (add in Meta → Facebook Login →
+                Settings → Valid OAuth Redirect URIs):
+              </p>
+              <ul className="space-y-1 rounded-lg border border-border/70 bg-background/60 px-3 py-2 font-mono text-xs">
+                {productionRedirects.map((u) => (
+                  <li key={u}>{u}</li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Open{" "}
+                <a
+                  className="underline underline-offset-2"
+                  href={`https://developers.facebook.com/apps/${metaStatus.appId || "1393197368918790"}/business-login/settings/`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Facebook Login settings
+                </a>{" "}
+                and paste both URIs (press comma after each), then Save Changes.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="mt-2 space-y-3 text-sm">

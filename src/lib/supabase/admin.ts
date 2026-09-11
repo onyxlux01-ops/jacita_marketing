@@ -1,3 +1,5 @@
+import "server-only"
+
 import { createClient } from "@supabase/supabase-js"
 
 import type { Database } from "@/lib/database.types"
@@ -8,12 +10,6 @@ import { getSupabaseUrl } from "@/lib/supabase/env"
  * Never import this module from Client Components or expose the key publicly.
  */
 export function createAdminClient() {
-  if (typeof window !== "undefined") {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY must only be used on the server"
-    )
-  }
-
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceRoleKey) {
     throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY")
