@@ -136,6 +136,10 @@
   h4,
   h5,
   h6,
+  .homepage-hero {
+    font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  }
+
   .font-heading {
     font-family: var(--font-syne), "Syne", ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.02em;

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Manrope, Syne } from "next/font/google";
+import { IBM_Plex_Mono, Inter, Manrope, Syne } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers";
@@ -24,6 +24,12 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "Jacita Marketing",
@@ -37,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${manrope.variable} ${syne.variable} ${plexMono.variable} h-full antialiased`}
+      className={`${manrope.variable} ${syne.variable} ${plexMono.variable} ${inter.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className={`${manrope.className} flex min-h-full flex-col`}>
