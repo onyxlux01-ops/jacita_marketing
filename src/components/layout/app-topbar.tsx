@@ -32,7 +32,7 @@ export function AppTopbar({
   unreadCount?: number;
 }) {
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur-md sm:px-6">
+    <header className="jacita-chrome sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-border/60 px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-2 lg:hidden">
         <Sheet>
           <SheetTrigger asChild>

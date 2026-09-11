@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/content/status-badge";
 import { PlatformIcons } from "@/components/content/platform-icons";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getActiveOrganisation, getUserOrganisations } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import type { ContentStatus, SocialPlatform } from "@/lib/types";
@@ -168,11 +169,7 @@ export default async function ContentListPage({
         </div>
       </header>
 
-      <Suspense
-        fallback={
-          <div className="h-9 w-full max-w-xl animate-pulse rounded-lg bg-muted" />
-        }
-      >
+      <Suspense fallback={<Skeleton className="h-9 w-full max-w-xl rounded-lg" />}>
         <ContentFilters
           current={statusFilter}
           tabs={FILTER_TABS}

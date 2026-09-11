@@ -31,6 +31,11 @@ import type { MetaSurfaceSnapshot } from "@/components/automation/meta-connectio
 import type { AiProviderHealth } from "@/lib/ai";
 import { Button } from "@/components/ui/button";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -335,30 +340,33 @@ export function AutomationControlCentre({
   return (
     <div className="relative space-y-9 pb-32 lg:space-y-11">
       {aiHealth && !aiHealth.live ? (
-        <section
-          className="rounded-xl border border-amber-500/35 bg-amber-50/80 px-4 py-3.5 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
-          role="status"
-        >
-          <p className="font-medium">
+        <Alert variant="warning" className="px-4 py-3.5">
+          <AlertTriangle />
+          <AlertTitle>
             {aiHealth.reason === "billing"
               ? "OpenAI credits required"
               : "OpenAI is not live"}
-          </p>
-          <p className="mt-1 text-[13px] leading-relaxed opacity-90">
-            {aiHealth.message} Automation can still run, but content and
-            insights will use safe demo fallbacks until OpenAI is available.
-          </p>
-          {aiHealth.reason === "billing" || aiHealth.reason === "invalid_key" ? (
-            <a
-              href="https://platform.openai.com/settings/organization/billing/"
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex text-[13px] font-medium underline underline-offset-2"
-            >
-              Open OpenAI billing
-            </a>
-          ) : null}
-        </section>
+          </AlertTitle>
+          <AlertDescription>
+            <p>
+              {aiHealth.message} Automation can still run, but content and
+              insights will use safe demo fallbacks until OpenAI is available.
+            </p>
+            {aiHealth.reason === "billing" ||
+            aiHealth.reason === "invalid_key" ? (
+              <p className="mt-2 mb-0">
+                <a
+                  href="https://platform.openai.com/settings/organization/billing/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium"
+                >
+                  Open OpenAI billing
+                </a>
+              </p>
+            ) : null}
+          </AlertDescription>
+        </Alert>
       ) : aiHealth?.live ? (
         <p className="text-xs text-muted-foreground">
           OpenAI live · {aiHealth.model}

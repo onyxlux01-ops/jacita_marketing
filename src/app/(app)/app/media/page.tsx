@@ -2,11 +2,10 @@ import { ImageIcon, Search } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { MediaUploadForm } from "./upload-form";
 import { MediaAssetActions } from "./media-actions";
+import { MediaCategoryTabs } from "./media-category-tabs";
 import { Input } from "@/components/ui/input";
 import { getActiveOrganisation, getUserOrganisations } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
-import { cn } from "@/lib/utils";
-import Link from "next/link";
 
 const CATEGORIES = [
   "All",
@@ -106,29 +105,7 @@ export default async function MediaPage({
       </header>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {CATEGORIES.map((c) => {
-            const href =
-              c === "All"
-                ? "/app/media"
-                : `/app/media?category=${encodeURIComponent(c)}`;
-            const activeTab = category === c;
-            return (
-              <Link
-                key={c}
-                href={href}
-                className={cn(
-                  "shrink-0 rounded-full px-3.5 py-1.5 text-sm transition-colors",
-                  activeTab
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {c}
-              </Link>
-            );
-          })}
-        </div>
+        <MediaCategoryTabs categories={CATEGORIES} current={category} />
         <form className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input

@@ -7,6 +7,7 @@ import { Suspense, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { createClient } from "@/lib/supabase/client"
 
 function LoginForm() {
@@ -114,11 +115,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <Suspense
-        fallback={
-          <div className="h-64 animate-pulse rounded-2xl border border-border/70 bg-background/60" />
-        }
-      >
+      <Suspense fallback={<Skeleton className="h-64 w-full rounded-2xl" />}>
         <LoginForm />
       </Suspense>
     </div>

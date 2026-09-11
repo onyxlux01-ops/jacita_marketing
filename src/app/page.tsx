@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
-    <main className="relative flex min-h-svh flex-col overflow-hidden bg-[#f1f2f4]">
+    <main className="relative flex min-h-svh flex-col overflow-hidden bg-background">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           background: `
-            radial-gradient(ellipse 70% 50% at 12% 18%, rgba(10,107,99,0.12), transparent 55%),
-            radial-gradient(ellipse 55% 40% at 88% 12%, rgba(15,18,24,0.06), transparent 50%),
-            linear-gradient(165deg, #f7f8fa 0%, #eef0f3 100%)
+            radial-gradient(ellipse 70% 50% at 12% 18%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 55%),
+            radial-gradient(ellipse 55% 40% at 88% 12%, color-mix(in oklab, var(--foreground) 6%, transparent), transparent 50%),
+            linear-gradient(165deg, var(--background) 0%, color-mix(in oklab, var(--muted) 70%, var(--background)) 100%)
           `,
         }}
       />

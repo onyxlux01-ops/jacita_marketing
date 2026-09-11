@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ContentStatus } from "@/lib/types";
 
 export function ContentFilters({
@@ -37,26 +37,20 @@ export function ContentFilters({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {tabs.map((tab) => {
-          const active = current === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => update("status", tab.id === "all" ? null : tab.id)}
-              className={cn(
-                "shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors",
-                active
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
+      <Tabs
+        value={current}
+        onValueChange={(value) =>
+          update("status", value === "all" ? null : value)
+        }
+      >
+        <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto">
+          {tabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} className="px-3">
               {tab.label}
-            </button>
-          );
-        })}
-      </div>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
       <div className="flex flex-wrap gap-2">
         <Input
           defaultValue={searchParams.get("q") || ""}

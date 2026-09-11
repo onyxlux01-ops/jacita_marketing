@@ -38,7 +38,7 @@ export function BusinessSwitcher({
       <DropdownMenuTrigger
         disabled={pending}
         className={cn(
-          "group text-left outline-none transition-colors",
+          "jacita-press group text-left outline-none transition-colors",
           variant === "sidebar" &&
             "w-full rounded-lg px-2.5 py-2.5 hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
           variant === "compact" &&

@@ -54,7 +54,7 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
+        "jacita-press group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
@@ -148,7 +148,7 @@ export function MobileBottomNav() {
   ];
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/95 backdrop-blur-md lg:hidden">
+    <nav className="jacita-dock fixed inset-x-0 bottom-0 z-40 border-t border-border/60 lg:hidden">
       <ul className="mx-auto flex max-w-lg items-stretch justify-between px-1 pb-[env(safe-area-inset-bottom)]">
         {items.map((item) => {
           const active = item.exact
@@ -160,7 +160,7 @@ export function MobileBottomNav() {
               <Link
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium",
+                  "jacita-press flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium",
                   active ? "text-primary" : "text-muted-foreground"
                 )}
               >
