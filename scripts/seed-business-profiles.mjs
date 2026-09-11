@@ -17,7 +17,7 @@ const allHair = {
   org: {
     name: "All Hair & Beauty",
     slug: "all-hair-beauty",
-    business_category: "Hair & Beauty Salon",
+    business_category: "Hair & Beauty",
     description:
       "Texture specialists in Nottingham. Braids, locs and natural hair across two salons — Peveril Street (Radford) and Alfreton Road (Hyson Green).",
     location: "Nottingham, United Kingdom",
@@ -32,8 +32,7 @@ const allHair = {
     timezone: "Europe/London",
   },
   brand: {
-    brand_voice:
-      "Texture-first and craft-led. Confident, warm, and rooted in Nottingham. Speaks to crowns we know best — braids, locs and natural hair — without fluff.",
+    brand_voice: "Warm",
     tone: "Warm, specialist, confident",
     target_audience:
       "People in Nottingham seeking expert braids, locs, cornrows, weaves and natural hair care — especially clients who want texture considered at every step.",
@@ -150,7 +149,7 @@ const precise = {
   org: {
     name: "Precise Cleaning Limited",
     slug: "precise-cleaning",
-    business_category: "Domestic & Commercial Cleaning",
+    business_category: "Cleaning",
     description:
       "Professional domestic and commercial cleaning across Nottingham and Nottinghamshire. Fully insured, DBS-checked, eco-friendly products, satisfaction guaranteed.",
     location: "Radford, Nottingham, United Kingdom",
@@ -166,8 +165,7 @@ const precise = {
     created_by: OWNER_ID,
   },
   brand: {
-    brand_voice:
-      "Reliable, detail-obsessed and straightforward. Professional without being cold — local Nottingham cleaners who make spaces feel brand new.",
+    brand_voice: "Professional",
     tone: "Professional, trustworthy, friendly",
     target_audience:
       "Homeowners, landlords, tenants, offices and commercial properties across Nottingham and Nottinghamshire who want insured, DBS-checked cleaning with a clear quote.",
