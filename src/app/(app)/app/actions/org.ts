@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { setActiveOrganisationCookie } from "@/lib/org";
 import type { Database, Json, SocialPlatform } from "@/lib/database.types";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
@@ -566,6 +565,74 @@ export async function uploadMediaAsset(formData: FormData) {
         storage_path: storagePath,
         file_url: storagePath,
         media_type: mediaType,
+        description,
+        category,
+        uploaded_by: auth.user.id,
+      })
+      .select("id")
+      .single();
+
+    if (error) return { error: error.message };
+    uploadedIds.push(data.id);
+
+    await writeAudit(auth.supabase, auth.user.id, {
+      organisationId,
+      action: "media.uploaded",
+      entityType: "media_assets",
+      entityId: data.id,
+    });
+  }
+
+  revalidatePath("/app/media");
+  revalidatePath("/app/content/new");
+  revalidatePath("/app/onboarding/setup");
+  return { success: true, count: uploadedIds.length };
+}
+
+/**
+ * Register media already uploaded to the `media` bucket from the browser.
+ * Avoids Next.js / Vercel request-body limits on large files.
+ */
+export async function registerUploadedMediaAssets(input: {
+  organisationId: string;
+  storagePaths: Array<{
+    storagePath: string;
+    mediaType: "image" | "video";
+  }>;
+  category?: string | null;
+  description?: string | null;
+}) {
+  const auth = await getAuthedClient();
+  if ("error" in auth) return { error: auth.error };
+
+  const organisationId = input.organisationId;
+  if (!organisationId || !input.storagePaths.length) {
+    return { error: "Organisation and at least one file are required" };
+  }
+
+  const membership = await assertOrgMember(
+    auth.supabase,
+    auth.user.id,
+    organisationId
+  );
+  if (!membership) return { error: "Unauthorized for this business" };
+
+  const category = input.category || null;
+  const description = input.description || null;
+  const uploadedIds: string[] = [];
+
+  for (const item of input.storagePaths) {
+    if (!item.storagePath.startsWith(`${organisationId}/`)) {
+      return { error: "Invalid storage path for this business" };
+    }
+
+    const { data, error } = await auth.supabase
+      .from("media_assets")
+      .insert({
+        organisation_id: organisationId,
+        storage_path: item.storagePath,
+        file_url: item.storagePath,
+        media_type: item.mediaType,
         description,
         category,
         uploaded_by: auth.user.id,

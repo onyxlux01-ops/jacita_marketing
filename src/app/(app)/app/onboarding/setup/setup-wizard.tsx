@@ -12,9 +12,12 @@ import {
   saveOnboardingGoals,
   skipOnboardingStep,
 } from "@/app/(app)/app/actions/onboarding";
-import { createService } from "@/app/(app)/app/actions/org";
-import { uploadMediaAsset } from "@/app/(app)/app/actions/org";
+import { createService, registerUploadedMediaAssets } from "@/app/(app)/app/actions/org";
 import { MARKETING_GOALS } from "@/lib/ai/goals";
+import {
+  MEDIA_ACCEPT,
+  uploadFilesToMediaBucket,
+} from "@/lib/media/upload-media-client";
 import {
   BRAND_VOICE_OPTIONS,
   MEDIA_CATEGORIES,
@@ -530,15 +533,57 @@ export function SetupWizard({
           onSubmit={(e) => {
             e.preventDefault();
             const form = e.currentTarget;
-            const formData = new FormData(form);
-            formData.set("organisation_id", organisationId);
+            const files = Array.from(
+              (form.elements.namedItem("file") as HTMLInputElement)?.files ??
+                []
+            ).filter((f) => f.size > 0);
+            const category =
+              (form.elements.namedItem("category") as HTMLSelectElement)
+                ?.value || null;
+            const description =
+              (form.elements.namedItem("description") as HTMLInputElement)
+                ?.value || null;
+
+            if (!files.length) {
+              toast.error("Choose at least one file");
+              return;
+            }
+
             startTransition(async () => {
-              const res = await uploadMediaAsset(formData);
-              if (res.error) toast.error(res.error);
-              else {
-                toast.success("Uploaded");
+              try {
+                const { uploads, error: uploadError } =
+                  await uploadFilesToMediaBucket(organisationId, files);
+                if (uploadError || !uploads.length) {
+                  toast.error(uploadError || "Upload failed");
+                  return;
+                }
+
+                const res = await registerUploadedMediaAssets({
+                  organisationId,
+                  storagePaths: uploads.map((u) => ({
+                    storagePath: u.storagePath,
+                    mediaType: u.mediaType,
+                  })),
+                  category,
+                  description,
+                });
+
+                if (res.error) {
+                  toast.error(res.error);
+                  return;
+                }
+
+                toast.success(
+                  res.count && res.count > 1
+                    ? `Uploaded ${res.count}`
+                    : "Uploaded"
+                );
                 form.reset();
                 router.refresh();
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Upload failed"
+                );
               }
             });
           }}
@@ -549,13 +594,13 @@ export function SetupWizard({
               id="files"
               name="file"
               type="file"
-              accept="image/*,video/*"
+              accept={MEDIA_ACCEPT}
               multiple
               required
             />
             <p className="text-xs text-muted-foreground">
-              Drag files into the picker or select multiple images and videos.
-              Assets stay under this business only.
+              JPEG, PNG, WebP, GIF, MP4, MOV, WebM · max 50 MB each. Assets stay
+              under this business only.
             </p>
           </div>
           <div className="space-y-2">
