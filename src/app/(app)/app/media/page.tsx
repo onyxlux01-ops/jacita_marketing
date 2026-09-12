@@ -1,6 +1,7 @@
 import { ImageIcon, Search } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { MediaUploadForm } from "./upload-form";
+import { AiFlyerForm } from "./flyer-form";
 import { MediaAssetActions } from "./media-actions";
 import { MediaCategoryTabs } from "./media-category-tabs";
 import { Input } from "@/components/ui/input";
@@ -40,19 +41,29 @@ export default async function MediaPage({
     category: string | null;
     is_favourite: boolean;
   }> = [];
+  let services: Array<{ id: string; name: string }> = [];
 
   if (active && hasSupabaseEnv()) {
     try {
       const supabase = await createClient();
-      const { data } = await supabase
-        .from("media_assets")
-        .select(
-          "id, file_url, thumbnail_url, media_type, description, storage_path, category, is_favourite"
-        )
-        .eq("organisation_id", active.id)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
+      const [{ data }, { data: servicesData }] = await Promise.all([
+        supabase
+          .from("media_assets")
+          .select(
+            "id, file_url, thumbnail_url, media_type, description, storage_path, category, is_favourite"
+          )
+          .eq("organisation_id", active.id)
+          .eq("is_active", true)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("products_services")
+          .select("id, name")
+          .eq("organisation_id", active.id)
+          .eq("is_active", true)
+          .order("name"),
+      ]);
 
+      services = servicesData ?? [];
       const rows = data ?? [];
       assets = await Promise.all(
         rows.map(async (asset) => {
@@ -118,9 +129,14 @@ export default async function MediaPage({
       </div>
 
       {active ? (
-        <div className="jacita-panel rounded-2xl p-4 sm:p-5">
-          <p className="mb-3 text-sm font-medium">Upload</p>
-          <MediaUploadForm organisationId={active.id} />
+        <div className="space-y-4">
+          <div className="jacita-panel rounded-2xl p-4 sm:p-5">
+            <p className="mb-3 text-sm font-medium">Upload</p>
+            <MediaUploadForm organisationId={active.id} />
+          </div>
+          <div className="jacita-panel rounded-2xl p-4 sm:p-5">
+            <AiFlyerForm organisationId={active.id} services={services} />
+          </div>
         </div>
       ) : null}
 

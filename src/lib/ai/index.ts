@@ -6,6 +6,12 @@ export { generateMarketingStrategy } from "@/lib/ai/strategy";
 export { generateContent } from "@/lib/ai/content";
 export { generateContentPackage, AI_DECIDE } from "@/lib/ai/studio";
 export {
+  FLYER_FORMATS,
+  generateFlyerBrief,
+  generateFlyerImage,
+} from "@/lib/ai/flyer";
+export type { FlyerBrief, FlyerFormatId } from "@/lib/ai/flyer";
+export {
   rewriteContent,
   generateVariations,
   repurposeContent,

@@ -53,6 +53,7 @@ export type BusinessContext = {
     duration_seconds?: number | null;
     file_size_bytes?: number | null;
     aspect_ratio?: string | null;
+    storage_path?: string | null;
   }>;
   recentContent: Array<{
     id: string;
@@ -175,7 +176,7 @@ export async function getBusinessContext(
     supabase
       .from("media_assets")
       .select(
-        "id, media_type, description, category, is_favourite, tags, usage_count, width, height, duration_seconds, file_size_bytes, aspect_ratio"
+        "id, media_type, description, category, is_favourite, tags, usage_count, width, height, duration_seconds, file_size_bytes, aspect_ratio, storage_path"
       )
       .eq("organisation_id", organisationId)
       .eq("is_active", true)
