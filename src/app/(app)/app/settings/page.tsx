@@ -120,6 +120,7 @@ export default async function SettingsPage({
     last_error: string | null;
     configured: boolean;
     availablePages: Array<{ id: string; name: string }>;
+    selectedPageId: string | null;
   }> = [];
 
   let members: Array<{
@@ -256,6 +257,7 @@ export default async function SettingsPage({
         const row = (socialData ?? []).find((r) => r.platform === platform);
         const meta = (row?.metadata || {}) as {
           available_pages?: Array<{ id: string; name: string }>;
+          page_id?: string;
         };
         return {
           id: row?.id ?? "",
@@ -268,6 +270,7 @@ export default async function SettingsPage({
           last_error: row?.last_error ?? null,
           configured: getSocialAdapter(platform).isConfigured(),
           availablePages: meta.available_pages ?? [],
+          selectedPageId: meta.page_id ?? null,
         };
       });
       members = (memberData ?? []).map((m) => {

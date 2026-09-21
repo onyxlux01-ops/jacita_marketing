@@ -32,8 +32,8 @@ export const facebookAdapter: SocialPlatformAdapter = {
     return Boolean(getMetaAppCredentials());
   },
 
-  getAuthorizationUrl({ state, redirectUri }) {
-    const creds = getMetaAppCredentials();
+  getAuthorizationUrl({ state, redirectUri, credentials }) {
+    const creds = credentials ?? getMetaAppCredentials();
     if (!creds) {
       throw new SocialIntegrationError(
         "Meta app not configured",
@@ -50,8 +50,8 @@ export const facebookAdapter: SocialPlatformAdapter = {
     });
   },
 
-  async exchangeCode({ code, redirectUri }) {
-    const creds = getMetaAppCredentials();
+  async exchangeCode({ code, redirectUri, credentials }) {
+    const creds = credentials ?? getMetaAppCredentials();
     if (!creds) {
       throw new SocialIntegrationError(
         "Meta app not configured",

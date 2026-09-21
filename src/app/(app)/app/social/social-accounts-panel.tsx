@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   disconnectSocialAccount,
   selectFacebookPage,
+  selectInstagramPage,
 } from "@/app/(app)/app/actions/social";
 import { Button } from "@/components/ui/button";
 import { PlatformPill } from "@/components/content/platform-icons";
@@ -22,6 +23,7 @@ type Account = {
   last_error: string | null;
   configured: boolean;
   availablePages: Array<{ id: string; name: string }>;
+  selectedPageId: string | null;
 };
 
 export function SocialAccountsPanel({
@@ -164,16 +166,19 @@ export function SocialAccountsPanel({
                   )}
                 </div>
               </div>
-              {key === "facebook" &&
+              {(key === "facebook" || key === "instagram") &&
               connected &&
               (account?.availablePages?.length || 0) > 1 ? (
                 <div className="flex flex-wrap items-center gap-2 pl-1">
-                  <span className="text-xs text-muted-foreground">Page:</span>
+                  <span className="text-xs text-muted-foreground">
+                    {key === "instagram" ? "Account:" : "Page:"}
+                  </span>
                   {account!.availablePages.map((page) => (
                     <Button
                       key={page.id}
                       size="sm"
                       variant={
+                        account?.selectedPageId === page.id ||
                         account?.account_name === page.name
                           ? "default"
                           : "outline"
@@ -182,10 +187,16 @@ export function SocialAccountsPanel({
                       disabled={pending}
                       onClick={() => {
                         startTransition(async () => {
-                          const res = await selectFacebookPage({
-                            organisationId,
-                            pageId: page.id,
-                          });
+                          const res =
+                            key === "instagram"
+                              ? await selectInstagramPage({
+                                  organisationId,
+                                  pageId: page.id,
+                                })
+                              : await selectFacebookPage({
+                                  organisationId,
+                                  pageId: page.id,
+                                });
                           if (res.error) toast.error(res.error);
                           else toast.success(`Using ${page.name}`);
                         });

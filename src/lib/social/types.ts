@@ -70,6 +70,12 @@ export type ValidationIssue = {
   message: string;
 };
 
+/** App-level OAuth client credentials (Meta app id + secret). */
+export type MetaAppCredentials = {
+  appId: string;
+  appSecret: string;
+};
+
 export interface SocialPlatformAdapter {
   platform: SocialPlatform;
   isConfigured(): boolean;
@@ -77,11 +83,15 @@ export interface SocialPlatformAdapter {
     state: string;
     redirectUri: string;
     codeVerifier?: string;
+    /** Per-business Meta app override; falls back to the global app when absent. */
+    credentials?: MetaAppCredentials;
   }): string;
   exchangeCode(input: {
     code: string;
     redirectUri: string;
     codeVerifier?: string;
+    /** Per-business Meta app override; falls back to the global app when absent. */
+    credentials?: MetaAppCredentials;
   }): Promise<ConnectedAccountInfo>;
   refreshToken?(token: TokenBundle): Promise<TokenBundle>;
   getAccount?(token: TokenBundle): Promise<Partial<ConnectedAccountInfo>>;

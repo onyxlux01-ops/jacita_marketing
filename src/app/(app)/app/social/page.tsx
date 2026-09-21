@@ -1,5 +1,7 @@
 import { SocialAccountsPanel } from "./social-accounts-panel";
+import { MetaAppPanel } from "./meta-app-panel";
 import { PublishHistory } from "./publish-history";
+import { getOrgMetaAppInfo } from "@/lib/social/meta-app-credentials";
 import { getActiveOrganisation, getUserOrganisations } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { getSocialAdapter } from "@/lib/social/registry";
@@ -20,6 +22,9 @@ export default async function SocialAccountsPage({
   const orgs = await getUserOrganisations();
   const active = await getActiveOrganisation(orgs);
   const metaStatus = await verifyMetaCredentials();
+  const orgMetaApp = active
+    ? await getOrgMetaAppInfo(active.id)
+    : { hasOverride: false, appId: null, label: null };
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const redirects = oauthRedirectChecklist(appUrl);
@@ -37,6 +42,7 @@ export default async function SocialAccountsPage({
     last_error: string | null;
     configured: boolean;
     availablePages: Array<{ id: string; name: string }>;
+    selectedPageId: string | null;
   }> = PLATFORMS.map((platform) => ({
     id: "",
     platform,
@@ -47,6 +53,7 @@ export default async function SocialAccountsPage({
     last_error: null,
     configured: getSocialAdapter(platform).isConfigured(),
     availablePages: [],
+    selectedPageId: null,
   }));
 
   let logs: Array<{
@@ -86,6 +93,7 @@ export default async function SocialAccountsPage({
         const row = rows.find((r) => r.platform === platform);
         const meta = (row?.metadata || {}) as {
           available_pages?: Array<{ id: string; name: string }>;
+          page_id?: string;
         };
         const configured = getSocialAdapter(platform).isConfigured();
         const metaBlocked =
@@ -102,6 +110,7 @@ export default async function SocialAccountsPage({
           last_error: row?.last_error ?? null,
           configured: configured && !metaBlocked,
           availablePages: meta.available_pages ?? [],
+          selectedPageId: meta.page_id ?? null,
         };
       });
       logs = (logData as typeof logs) ?? [];
@@ -226,6 +235,14 @@ export default async function SocialAccountsPage({
           </div>
         )}
       </section>
+
+      {active ? (
+        <MetaAppPanel
+          organisationId={active.id}
+          organisationName={active.name}
+          info={orgMetaApp}
+        />
+      ) : null}
 
       {active ? (
         <SocialAccountsPanel

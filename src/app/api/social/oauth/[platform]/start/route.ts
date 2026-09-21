@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createOAuthState, oauthCallbackUrl } from "@/lib/social/oauth-state";
 import { getSocialAdapter } from "@/lib/social/registry";
+import { getMetaAppCredentialsForOrg } from "@/lib/social/meta-app-credentials";
 import { newTikTokCodeVerifier } from "@/lib/social/adapters/tiktok";
 import type { SocialPlatform } from "@/lib/types";
 import { SocialIntegrationError } from "@/lib/social/types";
@@ -66,11 +67,18 @@ export async function GET(
   }
 
   const adapter = getSocialAdapter(platform);
-  if (!adapter.isConfigured()) {
+  const isMeta = platform === "facebook" || platform === "instagram";
+  // Meta platforms resolve credentials per-business (with global fallback);
+  // other platforms use their env-based isConfigured() check.
+  const metaCreds = isMeta
+    ? await getMetaAppCredentialsForOrg(organisationId)
+    : null;
+  const configured = isMeta ? Boolean(metaCreds) : adapter.isConfigured();
+  if (!configured) {
     return NextResponse.redirect(
       new URL(
         `/app/social?error=${encodeURIComponent(
-          `${platform} is not configured. Add platform credentials to the server environment.`
+          `${platform} is not configured. Add a Meta app for this business, or set the platform's server credentials.`
         )}`,
         url.origin
       )
@@ -95,6 +103,7 @@ export async function GET(
       state,
       redirectUri: oauthCallbackUrl(platform),
       codeVerifier,
+      credentials: metaCreds ?? undefined,
     });
 
     return NextResponse.redirect(authUrl);

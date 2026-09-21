@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteAccountSecrets, loadAccountSecrets } from "@/lib/social/secrets";
+import {
+  deleteOrgMetaApp,
+  saveOrgMetaApp,
+} from "@/lib/social/meta-app-credentials";
 import { getSocialAdapter } from "@/lib/social/registry";
 import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
 import type { SocialPlatform } from "@/lib/types";
@@ -341,5 +345,203 @@ export async function selectFacebookPage(input: {
     return {
       error: "Could not switch Facebook Page. Try reconnecting.",
     };
+  }
+}
+
+export async function selectInstagramPage(input: {
+  organisationId: string;
+  pageId: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+
+  const { data: membership } = await auth.supabase
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", input.organisationId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
+    return {
+      error: "Only owners and managers can change the Instagram account",
+    };
+  }
+
+  const { data: account } = await auth.supabase
+    .from("social_accounts")
+    .select("id, metadata, connection_status")
+    .eq("organisation_id", input.organisationId)
+    .eq("platform", "instagram")
+    .maybeSingle();
+
+  if (!account || account.connection_status !== "connected") {
+    return { error: "Connect Instagram first" };
+  }
+
+  const metadata = (account.metadata || {}) as {
+    available_pages?: Array<{
+      id: string;
+      name: string;
+      ig_user_id?: string;
+    }>;
+    page_id?: string;
+    ig_user_id?: string;
+    username?: string | null;
+  };
+  const page = (metadata.available_pages || []).find(
+    (p) => p.id === input.pageId
+  );
+  if (!page?.ig_user_id) {
+    return {
+      error:
+        "That Instagram account is not available for this connection. Reconnect Instagram.",
+    };
+  }
+
+  const token = await loadAccountSecrets(account.id, input.organisationId);
+  if (!token?.accessToken) {
+    return { error: "Missing credentials. Reconnect Instagram." };
+  }
+
+  try {
+    const { metaFetch } = await import("@/lib/social/meta-client");
+    const pages = await metaFetch<{
+      data?: Array<{
+        id: string;
+        name: string;
+        access_token: string;
+        instagram_business_account?: { id: string };
+      }>;
+    }>("/me/accounts", {
+      searchParams: {
+        access_token: token.accessToken,
+        fields: "id,name,access_token,instagram_business_account",
+      },
+    });
+    const full = pages.data?.find((p) => p.id === input.pageId);
+    const igUserId = full?.instagram_business_account?.id;
+    if (!full || !igUserId) {
+      return {
+        error: "Could not load that Instagram account. Reconnect Instagram.",
+      };
+    }
+
+    const igProfile = await metaFetch<{
+      id: string;
+      username?: string;
+      name?: string;
+      profile_picture_url?: string;
+    }>(`/${igUserId}`, {
+      searchParams: {
+        access_token: full.access_token,
+        fields: "id,username,name,profile_picture_url",
+      },
+    });
+
+    const { saveAccountSecrets } = await import("@/lib/social/secrets");
+    await saveAccountSecrets({
+      socialAccountId: account.id,
+      organisationId: input.organisationId,
+      token: {
+        ...token,
+        pageAccessToken: full.access_token,
+      },
+    });
+
+    await auth.supabase
+      .from("social_accounts")
+      .update({
+        external_account_id: igUserId,
+        account_name: igProfile.name || full.name,
+        account_handle: igProfile.username
+          ? `@${igProfile.username}`
+          : igProfile.name || full.name,
+        profile_image_url: igProfile.profile_picture_url ?? null,
+        metadata: {
+          ...metadata,
+          page_id: full.id,
+          ig_user_id: igUserId,
+          username: igProfile.username || null,
+        },
+      })
+      .eq("id", account.id)
+      .eq("organisation_id", input.organisationId);
+
+    revalidatePath("/app/social");
+    return { success: true };
+  } catch {
+    return {
+      error: "Could not switch Instagram account. Try reconnecting.",
+    };
+  }
+}
+
+async function requireOwnerOrManager(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organisationId: string,
+  userId: string
+) {
+  const { data: membership } = await supabase
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return Boolean(membership && ["owner", "manager"].includes(membership.role));
+}
+
+export async function saveOrgMetaAppCredentials(input: {
+  organisationId: string;
+  appId: string;
+  appSecret: string;
+  label?: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+
+  if (!(await requireOwnerOrManager(auth.supabase, input.organisationId, auth.user.id))) {
+    return { error: "Only owners and managers can change the Meta app" };
+  }
+
+  const appId = input.appId.trim();
+  const appSecret = input.appSecret.trim();
+  if (!/^\d{5,}$/.test(appId)) {
+    return { error: "Enter a valid Meta App ID (numeric)." };
+  }
+  if (appSecret.length < 16) {
+    return { error: "Enter the Meta App Secret from your app's Basic settings." };
+  }
+
+  try {
+    await saveOrgMetaApp({
+      organisationId: input.organisationId,
+      appId,
+      appSecret,
+      label: input.label?.trim() || null,
+    });
+    revalidatePath("/app/social");
+    return { success: true };
+  } catch {
+    return { error: "Could not save the Meta app credentials." };
+  }
+}
+
+export async function removeOrgMetaAppCredentials(input: {
+  organisationId: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+
+  if (!(await requireOwnerOrManager(auth.supabase, input.organisationId, auth.user.id))) {
+    return { error: "Only owners and managers can change the Meta app" };
+  }
+
+  try {
+    await deleteOrgMetaApp(input.organisationId);
+    revalidatePath("/app/social");
+    return { success: true };
+  } catch {
+    return { error: "Could not remove the Meta app credentials." };
   }
 }

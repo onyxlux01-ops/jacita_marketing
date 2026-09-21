@@ -33,8 +33,8 @@ export const instagramAdapter: SocialPlatformAdapter = {
     return Boolean(getMetaAppCredentials());
   },
 
-  getAuthorizationUrl({ state, redirectUri }) {
-    const creds = getMetaAppCredentials();
+  getAuthorizationUrl({ state, redirectUri, credentials }) {
+    const creds = credentials ?? getMetaAppCredentials();
     if (!creds) {
       throw new SocialIntegrationError(
         "Meta app not configured",
@@ -51,8 +51,8 @@ export const instagramAdapter: SocialPlatformAdapter = {
     });
   },
 
-  async exchangeCode({ code, redirectUri }) {
-    const creds = getMetaAppCredentials();
+  async exchangeCode({ code, redirectUri, credentials }) {
+    const creds = credentials ?? getMetaAppCredentials();
     if (!creds) {
       throw new SocialIntegrationError(
         "Meta app not configured",
@@ -95,10 +95,10 @@ export const instagramAdapter: SocialPlatformAdapter = {
       },
     });
 
-    const pageWithIg = (pages.data || []).find(
+    const withIg = (pages.data || []).filter(
       (p) => p.instagram_business_account?.id
     );
-    if (!pageWithIg?.instagram_business_account?.id) {
+    if (!withIg.length) {
       throw new SocialIntegrationError(
         "No Instagram Business account linked",
         "oauth_failed",
@@ -106,7 +106,8 @@ export const instagramAdapter: SocialPlatformAdapter = {
       );
     }
 
-    const igUserId = pageWithIg.instagram_business_account.id;
+    const pageWithIg = withIg[0];
+    const igUserId = pageWithIg.instagram_business_account!.id;
     const igProfile = await metaFetch<{
       id: string;
       username?: string;
@@ -135,6 +136,11 @@ export const instagramAdapter: SocialPlatformAdapter = {
         ig_user_id: igUserId,
         page_id: pageWithIg.id,
         username: igProfile.username || null,
+        available_pages: withIg.map((p) => ({
+          id: p.id,
+          name: p.name,
+          ig_user_id: p.instagram_business_account!.id,
+        })),
       },
       token: {
         accessToken: longLived.access_token,

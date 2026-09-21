@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { consumeOAuthState, oauthCallbackUrl } from "@/lib/social/oauth-state";
 import { getSocialAdapter } from "@/lib/social/registry";
+import { getMetaAppCredentialsForOrg } from "@/lib/social/meta-app-credentials";
 import { saveAccountSecrets } from "@/lib/social/secrets";
 import type { Json } from "@/lib/database.types";
 import type { SocialPlatform } from "@/lib/types";
@@ -95,10 +96,16 @@ export async function GET(
   const admin = createAdminClient();
 
   try {
+    const isMeta = platform === "facebook" || platform === "instagram";
+    const metaCreds = isMeta
+      ? await getMetaAppCredentialsForOrg(oauthState.organisation_id)
+      : null;
+
     const connected = await adapter.exchangeCode({
       code,
       redirectUri: oauthCallbackUrl(platform),
       codeVerifier: oauthState.code_verifier || undefined,
+      credentials: metaCreds ?? undefined,
     });
 
     // Upsert social_accounts for this org+platform
