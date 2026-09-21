@@ -101,7 +101,7 @@ export async function GET(
 
     const authUrl = adapter.getAuthorizationUrl({
       state,
-      redirectUri: oauthCallbackUrl(platform),
+      redirectUri: oauthCallbackUrl(platform, request),
       codeVerifier,
       credentials: metaCreds ?? undefined,
     });

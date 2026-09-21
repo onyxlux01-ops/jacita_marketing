@@ -71,6 +71,45 @@ export function getAppBaseUrl() {
   ).replace(/\/$/, "");
 }
 
-export function oauthCallbackUrl(platform: SocialPlatform) {
-  return `${getAppBaseUrl()}/api/social/oauth/${platform}/callback`;
+/**
+ * Build an origin (proto://host) from forwarded/host headers. Works for both
+ * a route handler `Request` and a server component's `headers()` result via the
+ * `get` accessor. Returns null when no host header is present.
+ */
+function originFromHeaders(get: (key: string) => string | null): string | null {
+  const host = get("x-forwarded-host") || get("host");
+  if (!host) return null;
+  const proto =
+    get("x-forwarded-proto") ||
+    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+  return `${proto}://${host.split(",")[0].trim()}`;
+}
+
+/** Origin of an incoming route-handler request (deployment-aware). */
+export function requestOrigin(request: Request): string | null {
+  try {
+    return originFromHeaders((k) => request.headers.get(k));
+  } catch {
+    return null;
+  }
+}
+
+/** Origin derived from a server component's awaited `headers()` list. */
+export function headerOrigin(headerList: Headers): string | null {
+  return originFromHeaders((k) => headerList.get(k));
+}
+
+/**
+ * The base URL the app is actually being served from. Prefers the live request
+ * host so OAuth works on any deployment (prod, preview, custom domain) without
+ * per-environment config; falls back to the configured/base URL.
+ */
+export function resolvedAppBaseUrl(request?: Request) {
+  return (request && requestOrigin(request)) || getAppBaseUrl();
+}
+
+export function oauthCallbackUrl(platform: SocialPlatform, request?: Request) {
+  return `${resolvedAppBaseUrl(request)}/api/social/oauth/${platform}/callback`;
 }

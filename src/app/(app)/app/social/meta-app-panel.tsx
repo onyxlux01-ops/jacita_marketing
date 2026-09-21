@@ -20,10 +20,12 @@ export function MetaAppPanel({
   organisationId,
   organisationName,
   info,
+  redirectUris,
 }: {
   organisationId: string;
   organisationName: string;
   info: Info;
+  redirectUris: string[];
 }) {
   const [open, setOpen] = useState(false);
   const [appId, setAppId] = useState("");
@@ -141,6 +143,19 @@ export function MetaAppPanel({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
             />
+          </div>
+          <div className="space-y-1.5 rounded-md border border-dashed border-border/70 bg-muted/30 p-2.5">
+            <p className="text-xs font-medium text-foreground">
+              In this Meta app, add these Valid OAuth Redirect URIs (Facebook
+              Login for Business → Settings):
+            </p>
+            <ul className="space-y-1 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {redirectUris.map((u) => (
+                <li key={u} className="break-all">
+                  {u}
+                </li>
+              ))}
+            </ul>
           </div>
           <div className="flex justify-end">
             <Button size="sm" disabled={pending} onClick={handleSave}>

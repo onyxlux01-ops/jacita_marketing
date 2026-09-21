@@ -2,6 +2,8 @@ import { SocialAccountsPanel } from "./social-accounts-panel";
 import { MetaAppPanel } from "./meta-app-panel";
 import { PublishHistory } from "./publish-history";
 import { getOrgMetaAppInfo } from "@/lib/social/meta-app-credentials";
+import { getAppBaseUrl, headerOrigin } from "@/lib/social/oauth-state";
+import { headers } from "next/headers";
 import { getActiveOrganisation, getUserOrganisations } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { getSocialAdapter } from "@/lib/social/registry";
@@ -25,12 +27,11 @@ export default async function SocialAccountsPage({
   const orgMetaApp = active
     ? await getOrgMetaAppInfo(active.id)
     : { hasOverride: false, appId: null, label: null };
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const redirects = oauthRedirectChecklist(appUrl);
-  const productionRedirects = oauthRedirectChecklist(
-    "https://jacita-marketing.vercel.app"
-  );
+  // Derive redirect URIs from the domain this page is actually served on, so
+  // the values shown match every deployment (prod, preview, custom domain).
+  const headerList = await headers();
+  const currentOrigin = headerOrigin(headerList) || getAppBaseUrl();
+  const redirects = oauthRedirectChecklist(currentOrigin);
 
   let accounts: Array<{
     id: string;
@@ -174,11 +175,11 @@ export default async function SocialAccountsPage({
             </p>
             <div className="mt-3 space-y-1">
               <p className="text-xs font-medium text-foreground">
-                Production OAuth redirect URIs (add in Meta → Facebook Login →
-                Settings → Valid OAuth Redirect URIs):
+                OAuth redirect URIs for this deployment (add in each Meta app →
+                Facebook Login → Settings → Valid OAuth Redirect URIs):
               </p>
               <ul className="space-y-1 rounded-lg border border-border/70 bg-background/60 px-3 py-2 font-mono text-xs">
-                {productionRedirects.map((u) => (
+                {redirects.map((u) => (
                   <li key={u}>{u}</li>
                 ))}
               </ul>
@@ -241,6 +242,7 @@ export default async function SocialAccountsPage({
           organisationId={active.id}
           organisationName={active.name}
           info={orgMetaApp}
+          redirectUris={redirects}
         />
       ) : null}
 

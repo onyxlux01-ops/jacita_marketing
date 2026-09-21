@@ -103,7 +103,7 @@ export async function GET(
 
     const connected = await adapter.exchangeCode({
       code,
-      redirectUri: oauthCallbackUrl(platform),
+      redirectUri: oauthCallbackUrl(platform, request),
       codeVerifier: oauthState.code_verifier || undefined,
       credentials: metaCreds ?? undefined,
     });
