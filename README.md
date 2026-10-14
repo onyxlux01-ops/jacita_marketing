@@ -183,6 +183,7 @@ Follow these steps in order.
        pair already has two processing/uncertain jobs)
    11. `20261014170000_ads_execution_limits.sql`
    12. `20261014180000_invites_accept.sql`
+   13. `20261014190000_ads_pause_and_reconcile.sql`
 
    After `20261014180000`, scripts that insert members with the service role
    (e.g. `scripts/seed-business-profiles-remote.mjs`) no longer work; people
