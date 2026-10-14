@@ -79,6 +79,28 @@ export async function addMember(
   return data.id as string;
 }
 
+/**
+ * Flag a user as platform admin. users.is_platform_admin is protected by a
+ * trigger that only lets an existing admin flip it, so this goes straight to
+ * the LOCAL Postgres (guarded) and bypasses that trigger for the fixture.
+ */
+export async function makePlatformAdmin(userId: string) {
+  const dbUrl = assertLocalUrl(process.env.SUPABASE_DB_URL!, "SUPABASE_DB_URL");
+  const { default: pg } = await import("pg");
+  const client = new pg.Client({ connectionString: dbUrl });
+  await client.connect();
+  try {
+    await client.query("begin");
+    await client.query("set local session_replication_role = replica");
+    await client.query("update public.users set is_platform_admin = true where id = $1", [
+      userId,
+    ]);
+    await client.query("commit");
+  } finally {
+    await client.end();
+  }
+}
+
 export async function membership(orgId: string, userId: string) {
   const { data } = await admin
     .from("organisation_members")

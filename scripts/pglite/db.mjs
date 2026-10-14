@@ -24,6 +24,22 @@ import { join } from "node:path";
 
 const MIG = process.env.MIG_DIR || "supabase/migrations";
 
+/** Apply migrations whose file name is > `after` (and <= `upTo` if given). */
+export async function applyMigrations(db, { after, upTo } = {}) {
+  const files = readdirSync(MIG).filter((f) => f.endsWith(".sql")).sort();
+  for (const f of files) {
+    if (after && f <= after) continue;
+    if (upTo && f > upTo) break;
+    const sql = readFileSync(join(MIG, f), "utf8");
+    try {
+      await db.exec(`begin;\n${sql}\ncommit;`);
+    } catch (e) {
+      await db.exec("rollback").catch(() => {});
+      throw new Error(`migration ${f} failed: ${e.message}`);
+    }
+  }
+}
+
 export async function freshDb({ upTo } = {}) {
   const db = new PGlite();
   await db.exec(readFileSync(new URL("./shim.sql", import.meta.url), "utf8"));

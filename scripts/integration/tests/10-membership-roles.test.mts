@@ -9,6 +9,7 @@ import {
   actAs,
   admin,
   createUser,
+  makePlatformAdmin,
   membership,
   teamOrg,
 } from "../helpers.ts";
@@ -207,33 +208,61 @@ test("roles: deleting a business still cascades its owner row", async () => {
   assert.equal(await membership(orgId, owner.id), null);
 });
 
-test("settings: staff cannot write automation/ads/org settings", async () => {
-  const { orgId, staff } = await teamOrg("staffsettings");
-  await admin
+const AUTOPILOT_REFUSED = /Autopilot mode is not available yet/;
+
+async function seedSettings(orgId: string) {
+  const a = await admin
     .from("automation_settings")
     .insert({ organisation_id: orgId, mode: "manual" });
-  await admin.from("advertising_settings").insert({ organisation_id: orgId });
+  assert.equal(a.error, null, a.error?.message);
+  const b = await admin.from("advertising_settings").insert({ organisation_id: orgId });
+  assert.equal(b.error, null, b.error?.message);
+}
+
+test("settings: staff cannot write; manager CAN write the same columns", async () => {
+  const { orgId, staff, manager } = await teamOrg("staffsettings");
+  await seedSettings(orgId);
 
   const a = await staff.client
     .from("automation_settings")
     .update({ posts_per_week: 9 })
     .eq("organisation_id", orgId)
     .select("organisation_id");
-  assert.ok(a.error || !a.data?.length);
+  assert.equal(a.error, null);
+  assert.equal(a.data?.length, 0, "staff update must match zero rows (RLS)");
 
   const b = await staff.client
     .from("advertising_settings")
     .update({ daily_spend_limit_cents: 99999 })
     .eq("organisation_id", orgId)
     .select("organisation_id");
-  assert.ok(b.error || !b.data?.length);
+  assert.equal(b.error, null);
+  assert.equal(b.data?.length, 0, "staff ads update must match zero rows (RLS)");
 
   const c = await staff.client
     .from("organisations")
     .update({ autopilot_mode: "approval_required" })
     .eq("id", orgId)
     .select("id");
-  assert.ok(c.error || !c.data?.length);
+  assert.equal(c.error, null);
+  assert.equal(c.data?.length, 0);
+
+  // Positive control: the same writes succeed for a manager, so the staff
+  // result above is RLS, not a missing grant or table.
+  const ma = await manager.client
+    .from("automation_settings")
+    .update({ posts_per_week: 9 })
+    .eq("organisation_id", orgId)
+    .select("posts_per_week");
+  assert.equal(ma.error, null, ma.error?.message);
+  assert.deepEqual(ma.data, [{ posts_per_week: 9 }]);
+  const mb = await manager.client
+    .from("advertising_settings")
+    .update({ daily_spend_limit_cents: 12345 })
+    .eq("organisation_id", orgId)
+    .select("daily_spend_limit_cents");
+  assert.equal(mb.error, null, mb.error?.message);
+  assert.deepEqual(mb.data, [{ daily_spend_limit_cents: 12345 }]);
 
   actAs(staff);
   const { updateAutopilotMode } = await social();
@@ -245,35 +274,32 @@ test("settings: staff cannot write automation/ads/org settings", async () => {
   assert.ok("error" in viaAction && viaAction.error);
 });
 
-test("settings: autopilot is refused for owner, manager and service role", async () => {
+test("settings: autopilot is refused by the trigger for owner, manager and service role", async () => {
   const { orgId, owner, manager } = await teamOrg("autopilot");
-  await admin
-    .from("automation_settings")
-    .insert({ organisation_id: orgId, mode: "manual" });
-  await admin.from("advertising_settings").insert({ organisation_id: orgId });
+  await seedSettings(orgId);
 
   for (const user of [owner, manager]) {
     const o = await user.client
       .from("organisations")
       .update({ autopilot_mode: "autopilot" })
       .eq("id", orgId);
-    assert.ok(o.error, "org autopilot must be refused");
+    assert.match(o.error?.message ?? "", AUTOPILOT_REFUSED);
     const s = await user.client
       .from("automation_settings")
       .update({ mode: "autopilot" })
       .eq("organisation_id", orgId);
-    assert.ok(s.error, "automation autopilot must be refused");
+    assert.match(s.error?.message ?? "", AUTOPILOT_REFUSED);
     const ad = await user.client
       .from("advertising_settings")
       .update({ mode: "autopilot" })
       .eq("organisation_id", orgId);
-    assert.ok(ad.error, "ads autopilot must be refused");
+    assert.match(ad.error?.message ?? "", AUTOPILOT_REFUSED);
   }
   const svc = await admin
     .from("automation_settings")
     .update({ mode: "autopilot" })
     .eq("organisation_id", orgId);
-  assert.ok(svc.error);
+  assert.match(svc.error?.message ?? "", AUTOPILOT_REFUSED);
 
   const { updateAutopilotMode } = await social();
   const { saveAutomationSettings } = await automation();
@@ -289,7 +315,11 @@ test("settings: autopilot is refused for owner, manager and service role", async
   });
   assert.ok("error" in viaAutomation && viaAutomation.error);
 
-  // Manager may still switch to approval mode.
+  // Manager may still switch to approval mode; a paused business stays paused.
+  await admin
+    .from("automation_settings")
+    .update({ paused: true })
+    .eq("organisation_id", orgId);
   const ok = await updateAutopilotMode({
     organisationId: orgId,
     mode: "approval_required",
@@ -302,4 +332,42 @@ test("settings: autopilot is refused for owner, manager and service role", async
     .eq("id", orgId)
     .single();
   assert.equal(org?.autopilot_mode, "approval_required");
+  const { data: settings } = await admin
+    .from("automation_settings")
+    .select("mode, paused")
+    .eq("organisation_id", orgId)
+    .single();
+  assert.deepEqual(settings, { mode: "approval", paused: true });
 });
+
+test("roles: platform admin can run transfer_ownership (recovery path)", async () => {
+  const { orgId, owner, manager } = await teamOrg("adminxfer");
+  const padmin = await createUser("padmin");
+  await makePlatformAdmin(padmin.id);
+  const { error } = await padmin.client.rpc("transfer_ownership", {
+    p_organisation_id: orgId,
+    p_new_owner_user_id: manager.id,
+  });
+  assert.equal(error, null, error?.message);
+  assert.equal((await membership(orgId, manager.id))?.role, "owner");
+  assert.equal((await membership(orgId, owner.id))?.role, "manager");
+});
+
+test("roles: service role cannot insert a second owner", async () => {
+  const { orgId } = await teamOrg("svcowner");
+  const outsider = await createUser("svc-outsider");
+  const { error } = await admin
+    .from("organisation_members")
+    .insert({ organisation_id: orgId, user_id: outsider.id, role: "owner" });
+  assert.match(error?.message ?? "", /already has an owner/);
+});
+
+test("roles: deleting the auth user who owns a business is blocked", async () => {
+  const { orgId, owner } = await teamOrg("deluser");
+  const { error } = await admin.auth.admin.deleteUser(owner.id);
+  assert.ok(error, "deleting the owner's auth user must fail");
+  assert.equal((await membership(orgId, owner.id))?.role, "owner");
+  const { data } = await admin.auth.admin.getUserById(owner.id);
+  assert.equal(data.user?.id, owner.id, "auth user must still exist");
+});
+

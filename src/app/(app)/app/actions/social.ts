@@ -265,15 +265,27 @@ export async function updateAutopilotMode(input: {
   const automationMode =
     input.mode === "approval_required" ? "approval" : "manual";
 
-  const { error: settingsError } = await auth.supabase
+  // Keep the existing paused state / run state: changing the publishing mode
+  // must not silently resume a paused business.
+  const { data: existingSettings, error: readError } = await auth.supabase
     .from("automation_settings")
-    .upsert({
-      organisation_id: input.organisationId,
-      mode: automationMode,
-      enabled: true,
-      paused: false,
-      current_state: "completed",
-    });
+    .select("organisation_id")
+    .eq("organisation_id", input.organisationId)
+    .maybeSingle();
+  if (readError) return { error: readError.message };
+
+  const { error: settingsError } = existingSettings
+    ? await auth.supabase
+        .from("automation_settings")
+        .update({ mode: automationMode, enabled: true })
+        .eq("organisation_id", input.organisationId)
+    : await auth.supabase.from("automation_settings").insert({
+        organisation_id: input.organisationId,
+        mode: automationMode,
+        enabled: true,
+        paused: false,
+        current_state: "completed",
+      });
   if (settingsError) return { error: settingsError.message };
 
   revalidatePath("/app/settings");

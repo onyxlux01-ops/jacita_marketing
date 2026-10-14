@@ -81,6 +81,19 @@ create policy organisation_members_delete_owner
 -- -----------------------------------------------------------------------------
 -- 3. Membership guard trigger (applies to every role, incl. service_role)
 -- -----------------------------------------------------------------------------
+create or replace function private.organisation_exists(p_organisation_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (select 1 from public.organisations o where o.id = p_organisation_id);
+$$;
+
+revoke all on function private.organisation_exists(uuid) from public, anon;
+grant execute on function private.organisation_exists(uuid) to authenticated, service_role;
+
 -- SECURITY INVOKER on purpose: current_user must reflect who is really
 -- writing (authenticated / service_role, or postgres inside a security
 -- definer function such as create_organisation or transfer_ownership).
@@ -91,13 +104,17 @@ security invoker
 set search_path = ''
 as $$
 declare
-  v_transfer boolean :=
-    coalesce(current_setting('jacita.ownership_transfer', true), '') = 'on';
   v_actor uuid := (select auth.uid());
   -- Trusted = SQL running as the database owner / service role (security
   -- definer functions such as create_organisation, migrations, server code).
   -- Direct Data API calls from browsers run as "authenticated".
   v_trusted boolean := current_user in ('postgres', 'supabase_admin', 'service_role');
+  -- The ownership-transfer flag is honoured ONLY from trusted code (it is
+  -- set by the security-definer transfer_ownership RPC). An untrusted
+  -- session that somehow sets the GUC gains nothing.
+  v_transfer boolean :=
+    v_trusted
+    and coalesce(current_setting('jacita.ownership_transfer', true), '') = 'on';
 begin
   if tg_op = 'INSERT' then
     if new.role = 'owner' and not v_transfer then
@@ -138,10 +155,10 @@ begin
 
   -- DELETE
   if old.role = 'owner' and not v_transfer then
-    -- Allow the cascade when the whole organisation is being deleted.
-    if exists (
-      select 1 from public.organisations o where o.id = old.organisation_id
-    ) then
+    -- Allow the cascade when the whole organisation is being deleted. The
+    -- existence check is a security-definer helper so it is not affected by
+    -- the invoker's RLS visibility of organisations.
+    if private.organisation_exists(old.organisation_id) then
       raise exception 'The owner cannot be removed. Transfer ownership first.'
         using errcode = '42501';
     end if;
@@ -264,7 +281,35 @@ comment on function public.transfer_ownership(uuid, uuid) is
 -- 5. Refuse autopilot mode (server-side, every role)
 -- -----------------------------------------------------------------------------
 -- Existing autopilot rows are downgraded to the approval flow so no business
--- keeps unattended publishing / ad execution after this ships.
+-- keeps unattended publishing / ad execution after this ships. The previous
+-- mode of every affected business is recorded in audit_logs first.
+insert into public.audit_logs (organisation_id, user_id, action, entity_type, entity_id, metadata)
+select o.id, null, 'settings.autopilot_downgraded', 'organisations', o.id,
+       jsonb_build_object('setting', 'organisations.autopilot_mode',
+                          'previous_mode', o.autopilot_mode::text,
+                          'new_mode', 'approval_required',
+                          'reason', 'migration 20261014100000: autopilot refused server-side')
+from public.organisations o
+where o.autopilot_mode = 'autopilot';
+
+insert into public.audit_logs (organisation_id, user_id, action, entity_type, entity_id, metadata)
+select s.organisation_id, null, 'settings.autopilot_downgraded', 'automation_settings', s.organisation_id,
+       jsonb_build_object('setting', 'automation_settings.mode',
+                          'previous_mode', s.mode,
+                          'new_mode', 'approval',
+                          'reason', 'migration 20261014100000: autopilot refused server-side')
+from public.automation_settings s
+where s.mode = 'autopilot';
+
+insert into public.audit_logs (organisation_id, user_id, action, entity_type, entity_id, metadata)
+select s.organisation_id, null, 'settings.autopilot_downgraded', 'advertising_settings', s.organisation_id,
+       jsonb_build_object('setting', 'advertising_settings.mode',
+                          'previous_mode', s.mode,
+                          'new_mode', 'approval',
+                          'reason', 'migration 20261014100000: autopilot refused server-side')
+from public.advertising_settings s
+where s.mode = 'autopilot';
+
 update public.organisations
 set autopilot_mode = 'approval_required'
 where autopilot_mode = 'autopilot';
@@ -379,3 +424,23 @@ create policy advertising_settings_delete
     private.has_org_role(organisation_id, array['owner', 'manager']::public.org_role[])
     or private.is_platform_admin()
   );
+
+-- -----------------------------------------------------------------------------
+-- 7. Explicit grants on the Meta ads tables
+-- -----------------------------------------------------------------------------
+-- 20260909000000_meta_ads_foundation.sql relied on Supabase's legacy default
+-- privileges. Local stacks without auto_expose_new_tables (config.toml) and
+-- newer projects do not auto-grant, so state them explicitly. RLS above
+-- remains the gate for authenticated.
+grant select, insert, update, delete on public.meta_ad_accounts to authenticated;
+grant select, insert, update, delete on public.meta_ad_campaigns to authenticated;
+grant select, insert, update, delete on public.advertising_settings to authenticated;
+grant select, insert, update, delete on public.advertising_actions to authenticated;
+grant all on public.meta_ad_accounts to service_role;
+grant all on public.meta_ad_campaigns to service_role;
+grant all on public.advertising_settings to service_role;
+grant all on public.advertising_actions to service_role;
+revoke all on public.meta_ad_accounts from anon;
+revoke all on public.meta_ad_campaigns from anon;
+revoke all on public.advertising_settings from anon;
+revoke all on public.advertising_actions from anon;
