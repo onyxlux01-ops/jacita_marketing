@@ -16,6 +16,7 @@ import {
   getOrgMetaAppInfo,
   saveOrgMetaApp,
 } from "@/lib/social/meta-app-credentials";
+import { metaFetch } from "@/lib/social/meta-client";
 import { getSocialAdapter } from "@/lib/social/registry";
 import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
 import { contentStatusAllows } from "@/lib/social/publish-authz";
@@ -523,7 +524,6 @@ export async function selectFacebookPage(input: {
   }
 
   try {
-    const { metaFetch } = await import("@/lib/social/meta-client");
     const pages = await metaFetch<{
       data?: Array<{
         id: string;
@@ -566,7 +566,8 @@ export async function selectFacebookPage(input: {
       heldJobs: switched.heldJobs,
       otherPlatformJobs: switched.otherPlatformJobs,
     };
-  } catch {
+  } catch (e) {
+    console.error("selectFacebookPage failed", e instanceof Error ? e.message : e);
     return {
       error: "Could not switch Facebook Page. Try reconnecting.",
     };
@@ -632,7 +633,6 @@ export async function selectInstagramPage(input: {
   }
 
   try {
-    const { metaFetch } = await import("@/lib/social/meta-client");
     const pages = await metaFetch<{
       data?: Array<{
         id: string;
@@ -697,7 +697,8 @@ export async function selectInstagramPage(input: {
       heldJobs: switched.heldJobs,
       otherPlatformJobs: switched.otherPlatformJobs,
     };
-  } catch {
+  } catch (e) {
+    console.error("selectInstagramPage failed", e instanceof Error ? e.message : e);
     return {
       error: "Could not switch Instagram account. Try reconnecting.",
     };
