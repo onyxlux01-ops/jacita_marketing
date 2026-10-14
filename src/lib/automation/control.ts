@@ -532,8 +532,9 @@ export async function getNeedsAttention(
       .from("social_publish_jobs")
       .select("id, content_id, platform, error_message, error_code")
       .eq("organisation_id", organisationId)
-      .eq("status", "failed")
-      .eq("error_code", "AMBIGUOUS_TIMEOUT")
+      // Outcome unknown: the post may be live. Current jobs are `uncertain`;
+      // older ones were recorded as failed with AMBIGUOUS_TIMEOUT.
+      .or("status.eq.uncertain,and(status.eq.failed,error_code.eq.AMBIGUOUS_TIMEOUT)")
       .order("created_at", { ascending: false })
       .limit(5),
   ]);

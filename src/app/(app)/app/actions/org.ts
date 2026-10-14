@@ -452,13 +452,18 @@ export async function saveGeneratedContent(payload: {
   );
   if (!membership) return { error: "Unauthorized for this business" };
 
-  const status = payload.status ?? "draft";
-  let scheduledAt = payload.scheduled_at ?? null;
-  if (status === "scheduled" && !scheduledAt) {
-    scheduledAt =
-      payload.suggested_posting_time ||
-      new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const requested = payload.status ?? "draft";
+  // New content starts as draft / review / approved. "Scheduled" only
+  // becomes true through the scheduler (schedule_content), which queues the
+  // jobs; published/publishing/failed are never set by hand.
+  if (!["draft", "review", "approved", "scheduled"].includes(requested)) {
+    return { error: "New content can only be saved as draft, review or approved" };
   }
+  const status: ContentStatus = requested === "scheduled" ? "approved" : requested;
+  const scheduledAt =
+    requested === "scheduled"
+      ? upcomingScheduleTime(payload.scheduled_at || payload.suggested_posting_time)
+      : payload.scheduled_at ?? null;
 
   const { data, error } = await auth.supabase
     .from("content")
@@ -480,7 +485,6 @@ export async function saveGeneratedContent(payload: {
       tone: payload.tone || null,
       status,
       scheduled_at: scheduledAt,
-      published_at: status === "published" ? new Date().toISOString() : null,
       generation_payload: payload.generation_payload ?? null,
       created_by: auth.user.id,
     })
@@ -517,6 +521,24 @@ export async function saveGeneratedContent(payload: {
     entityId: data.id,
     metadata: { status },
   });
+
+  if (requested === "scheduled" && scheduledAt) {
+    const { scheduleContentPublishing } = await import(
+      "@/app/(app)/app/actions/social"
+    );
+    const scheduled = await scheduleContentPublishing({
+      contentId: data.id,
+      organisationId: payload.organisation_id,
+      scheduledAt,
+    });
+    if (scheduled.error) {
+      revalidatePath("/app/content");
+      return {
+        id: data.id,
+        error: `Saved as approved, but it was not scheduled: ${scheduled.error}`,
+      };
+    }
+  }
 
   revalidatePath("/app/content");
   revalidatePath("/app");

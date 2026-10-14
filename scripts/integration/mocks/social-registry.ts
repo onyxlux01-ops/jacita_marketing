@@ -30,6 +30,8 @@ function fakeAdapter(platform: SocialPlatform): SocialPlatformAdapter {
         contentId: input.contentId,
         organisationId: input.organisationId,
       });
+      // The request "reached" the provider, then the connection failed.
+      if (itest.publishError) throw new Error(itest.publishError);
       return {
         externalPostId: `${platform}-post-${itest.postCounter}`,
         status: "published",

@@ -10,69 +10,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatInTimeZone, normaliseTimeZone } from "@/lib/timezone";
 import type { ContentStatus } from "@/lib/types";
-
-type Fields = {
-  title: string;
-  hook: string;
-  caption: string;
-  call_to_action: string;
-  hashtags: string;
-  video_concept: string;
-  on_screen_text: string;
-  voiceover_script: string;
-  alt_text: string;
-  posting_recommendation: string;
-};
-
-type Initial = {
-  title: string | null;
-  hook: string | null;
-  caption: string | null;
-  call_to_action: string | null;
-  hashtags: string[] | null;
-  video_concept: string | null;
-  on_screen_text: string | null;
-  voiceover_script: string | null;
-  alt_text: string | null;
-  posting_recommendation: string | null;
-};
+import {
+  changedFields,
+  editorFieldsFrom,
+  type EditorFields as Fields,
+  type EditorSource as Initial,
+} from "@/lib/content/editor-fields";
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
 
 const APPROVED_STATES: ContentStatus[] = ["approved", "scheduled", "failed"];
 
-function toFields(initial: Initial): Fields {
-  return {
-    title: initial.title || "",
-    hook: initial.hook || "",
-    caption: initial.caption || "",
-    call_to_action: initial.call_to_action || "",
-    hashtags: (initial.hashtags || []).join(", "),
-    video_concept: initial.video_concept || "",
-    on_screen_text: initial.on_screen_text || "",
-    voiceover_script: initial.voiceover_script || "",
-    alt_text: initial.alt_text || "",
-    posting_recommendation: initial.posting_recommendation || "",
-  };
-}
-
-function toPayload(f: Fields) {
-  return {
-    title: f.title || null,
-    hook: f.hook || null,
-    caption: f.caption || null,
-    call_to_action: f.call_to_action || null,
-    hashtags: f.hashtags
-      .split(/[#,]+/)
-      .map((t) => t.trim())
-      .filter(Boolean),
-    video_concept: f.video_concept || null,
-    on_screen_text: f.on_screen_text || null,
-    voiceover_script: f.voiceover_script || null,
-    alt_text: f.alt_text || null,
-    posting_recommendation: f.posting_recommendation || null,
-  };
-}
+const toFields = editorFieldsFrom;
 
 /**
  * Copy editor with autosave.
@@ -137,6 +86,18 @@ export function ContentEditor({
     chain.current = chain.current.then(async () => {
       // A later save already covered this revision.
       if (rev <= saved.current.revision && !explicit) return;
+      // Only what changed since the last successful save: untouched fields
+      // are never rewritten (so they can't look like a material edit).
+      const changes = changedFields(saved.current.fields, snapshot);
+      if (!Object.keys(changes).length) {
+        if (rev > saved.current.revision) {
+          saved.current = { fields: snapshot, revision: rev };
+          setSavedRevision(rev);
+        }
+        if (explicit) toast.success("Saved");
+        if (inFlight.current === 0) setSaveState("saved");
+        return;
+      }
       inFlight.current += 1;
       setSaveState("saving");
       let outcome: SaveState = "saved";
@@ -145,7 +106,7 @@ export function ContentEditor({
           contentId,
           organisationId,
           silent: !explicit,
-          fields: toPayload(snapshot),
+          fields: changes,
         });
         if (!res.success) {
           outcome = "failed";

@@ -211,6 +211,8 @@ export async function getPublishingDashboard(
       title: titleById.get(f.content_id) || "Content",
       reason: f.error_message || f.error_type || "Publishing failed",
       errorType: f.error_type,
+      /** `uncertain`: the post may already be live; retry needs confirmation. */
+      status: f.status as string,
     })),
     queue: (queue || []).map((q) => ({
       id: q.id,

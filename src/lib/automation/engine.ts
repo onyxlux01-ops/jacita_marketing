@@ -921,6 +921,14 @@ export async function runAutomationForOrganisation(input: {
 export const AUTOMATION_INTERVAL_MS = 55 * 60 * 1000;
 
 /**
+ * Businesses claimed (and run) per cron call. Runs are sequential and slow
+ * (AI calls); claiming more than one call can finish before the function
+ * times out would leave the rest claimed but not run for an hour. The rest
+ * stay due and the next 5-minute trigger takes them, oldest first.
+ */
+export const AUTOMATION_MAX_PER_CALL = 5;
+
+/**
  * Claim every business whose hourly automation run is due: enabled, not
  * paused, not off, and last_run_at older than AUTOMATION_INTERVAL_MS (or
  * never run). Each claim is a conditional UPDATE of last_run_at, so of two
@@ -934,7 +942,8 @@ export const AUTOMATION_INTERVAL_MS = 55 * 60 * 1000;
  */
 export async function claimDueAutomation(
   admin: Admin,
-  now = new Date()
+  now = new Date(),
+  limit = AUTOMATION_MAX_PER_CALL
 ): Promise<{ claimed: string[]; alreadyClaimed: number }> {
   const cutoff = new Date(now.getTime() - AUTOMATION_INTERVAL_MS).toISOString();
   const due = `last_run_at.is.null,last_run_at.lt.${cutoff}`;
@@ -944,12 +953,16 @@ export async function claimDueAutomation(
     .eq("enabled", true)
     .eq("paused", false)
     .neq("mode", "off")
-    .or(due);
+    .or(due)
+    // Longest-waiting first, so a backlog drains fairly across calls.
+    .order("last_run_at", { ascending: true, nullsFirst: true })
+    .limit(Math.max(limit * 4, 20));
   if (error) throw new Error(`Could not list due automation: ${error.message}`);
 
   const claimed: string[] = [];
   let alreadyClaimed = 0;
   for (const row of rows ?? []) {
+    if (claimed.length >= limit) break;
     const { data, error: claimError } = await admin
       .from("automation_settings")
       .update({ last_run_at: now.toISOString() })

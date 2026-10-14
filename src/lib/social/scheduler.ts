@@ -25,6 +25,13 @@ export async function processDuePublishJobs(limit = 15) {
 }
 
 /**
+ * Jobs that have not started and can be cancelled outright (reject,
+ * emergency stop). Never `processing` (in flight) or `uncertain` (may be
+ * live: a person must check it first).
+ */
+export const CANCELLABLE_JOB_STATUSES = ["pending", "ready", "retrying", "held"] as const;
+
+/**
  * For IMPLICIT schedule times only (an AI-suggested time, the post's stored
  * time when approving): the scheduler refuses past times, so a missing or
  * passed time becomes "soon" instead. A time the user typed is never bumped;
@@ -45,7 +52,8 @@ export function upcomingScheduleTime(
 
 export type SchedulePlatformResult = {
   platform: SocialPlatform;
-  status: "queued" | "no_account";
+  /** uncertain_pending: an earlier attempt may be live; nothing queued. */
+  status: "queued" | "no_account" | "uncertain_pending";
   job_id?: string;
   social_account_id?: string;
 };
@@ -112,10 +120,17 @@ export async function enqueuePublishJobsForContent(input: {
     p_platforms: input.platforms?.length ? input.platforms : undefined,
     p_allow_immediate: Boolean(input.allowImmediate),
   });
-  if (error) return { jobIds: [], error: error.message, code: "RPC_ERROR" };
+  if (error) {
+    console.error("schedule_content RPC failed", input.contentId, error.message);
+    return { jobIds: [], error: "Could not schedule this post. Try again.", code: "RPC_ERROR" };
+  }
 
   const result = data as unknown as ScheduleRpcResult;
   if (!result?.ok) {
+    if (result?.code === "SCHEDULE_FAILED") {
+      // The database logged the details (raise warning).
+      console.error("schedule_content failed", input.contentId);
+    }
     return {
       jobIds: [],
       error: result?.error || "Could not schedule this post",
@@ -132,11 +147,21 @@ export async function enqueuePublishJobsForContent(input: {
   };
 }
 
-/** Human summary of platforms that could not be queued (no account). */
+/** Human summary of platforms that could not be queued. */
 export function describeSkippedPlatforms(result: EnqueueResult) {
-  const skipped = (result.platforms ?? []).filter((p) => p.status === "no_account");
-  if (!skipped.length) return null;
-  return `Not queued for ${skipped.map((p) => p.platform).join(", ")} (no connected account).`;
+  const all = result.platforms ?? [];
+  const noAccount = all.filter((p) => p.status === "no_account").map((p) => p.platform);
+  const uncertain = all.filter((p) => p.status === "uncertain_pending").map((p) => p.platform);
+  const parts: string[] = [];
+  if (noAccount.length) {
+    parts.push(`Not queued for ${noAccount.join(", ")} (no connected account).`);
+  }
+  if (uncertain.length) {
+    parts.push(
+      `Not queued for ${uncertain.join(", ")}: an earlier attempt may already be live. Check it, then retry that job.`
+    );
+  }
+  return parts.length ? parts.join(" ") : null;
 }
 
 /**
@@ -209,6 +234,20 @@ export async function publishContentViaJobPipeline(input: {
     };
   }
 
+  // A post whose last attempt has an unknown outcome may already be live:
+  // never start another one until a person has checked and retried that job.
+  const { data: uncertainJob, error: uncertainError } = await admin
+    .from("social_publish_jobs")
+    .select("id")
+    .eq("content_id", content.id)
+    .eq("social_account_id", account.id)
+    .eq("organisation_id", content.organisation_id)
+    .eq("status", "uncertain")
+    .limit(1)
+    .maybeSingle();
+  if (uncertainError) return { error: uncertainError.message };
+  if (uncertainJob) return uncertainPending(account.platform);
+
   // Prefer an existing active job for this content+account
   const { data: existingJob } = await admin
     .from("social_publish_jobs")
@@ -246,6 +285,7 @@ export async function publishContentViaJobPipeline(input: {
       allowImmediate: true,
     });
     if (enqueued.code === "ALREADY_PUBLISHING") return IN_PROGRESS;
+    if (enqueued.code === "UNCERTAIN_PENDING") return uncertainPending(account.platform);
     // Only ever use the job for THIS account — never another platform's job.
     jobId =
       enqueued.platforms?.find(
@@ -295,6 +335,13 @@ const IN_PROGRESS = {
   message: "This post is already being published. Check back in a moment.",
 };
 
+function uncertainPending(platform: string) {
+  return {
+    error: `The last ${platform} attempt for this post may already be live. Check ${platform}, then use "Retry" on that job and confirm it is not live.`,
+    code: "UNCERTAIN_PENDING" as const,
+  };
+}
+
 /** Another request/worker got the job first: report what it is doing. */
 async function jobStateAfterLostRace(admin: Admin, jobId: string) {
   const { data } = await admin
@@ -325,6 +372,11 @@ export async function retryPublishJob(input: {
   organisationId: string;
   userId: string;
   force?: boolean;
+  /**
+   * Required to retry an `uncertain` job: the person confirms they checked
+   * the platform and the post is NOT live. Without it the retry is refused.
+   */
+  confirmNotLive?: boolean;
 }) {
   const admin = createAdminClient();
 
@@ -349,6 +401,14 @@ export async function retryPublishJob(input: {
     return { error: "Already published — duplicate blocked", duplicate: true };
   }
   if (job.status === "processing") return IN_PROGRESS;
+  const wasUncertain = job.status === "uncertain";
+  if (wasUncertain && input.confirmNotLive !== true) {
+    return {
+      error: `This ${job.platform} post may already be live. Check ${job.platform} first, then confirm it is not live to retry.`,
+      code: "CONFIRM_NOT_LIVE_REQUIRED" as const,
+      needsConfirmation: true as const,
+    };
+  }
 
   const { data: content } = await admin
     .from("content")
@@ -371,6 +431,26 @@ export async function retryPublishJob(input: {
     return { error: "Social account not found for this business" };
   }
 
+  // Record the person's "not live" confirmation before anything runs.
+  if (wasUncertain) {
+    const { error: auditError } = await admin.from("audit_logs").insert({
+      organisation_id: input.organisationId,
+      user_id: input.userId,
+      action: "publish_job.retry_uncertain_confirmed_not_live",
+      entity_type: "social_publish_job",
+      entity_id: job.id,
+      metadata: {
+        platform: job.platform,
+        content_id: job.content_id,
+        previous_error: job.error_message,
+      },
+    });
+    if (auditError) {
+      // Fail closed: no retry of a possibly-live post without the record.
+      return { error: `Could not record the confirmation: ${auditError.message}` };
+    }
+  }
+
   // Reset for manual retry; the authorised retrier becomes the actor.
   const { data: reset, error: resetError } = await admin
     .from("social_publish_jobs")
@@ -386,9 +466,14 @@ export async function retryPublishJob(input: {
     })
     .eq("id", job.id)
     .eq("organisation_id", input.organisationId)
-    // Never from processing/published/cancelled. `uncertain` is allowed: a
-    // person has checked the platform and is explicitly retrying.
-    .in("status", ["failed", "retrying", "expired", "held", "uncertain", "pending", "ready"])
+    // Never from processing/published/cancelled. `uncertain` only when the
+    // person confirmed above that the post is not live.
+    .in(
+      "status",
+      wasUncertain
+        ? ["uncertain"]
+        : ["failed", "retrying", "expired", "held", "pending", "ready"]
+    )
     .select("id");
   if (resetError) return { error: resetError.message };
   if (!reset?.length) return jobStateAfterLostRace(admin, job.id);

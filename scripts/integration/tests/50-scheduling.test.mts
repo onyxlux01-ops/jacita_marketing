@@ -146,18 +146,18 @@ test("automation cron: overdue businesses are caught up once; overlapping trigge
   const now = new Date();
   // Two triggers at the same moment (e.g. a late GitHub run + the Vercel backup).
   const [a, b] = await Promise.all([
-    claimDueAutomation(createAdminClient(), now),
-    claimDueAutomation(createAdminClient(), now),
+    claimDueAutomation(createAdminClient(), now, 1000),
+    claimDueAutomation(createAdminClient(), now, 1000),
   ]);
   const claimed = [...a.claimed, ...b.claimed].filter((id) => mine.has(id)).sort();
   assert.deepEqual(claimed, [orgs.never, orgs.overdue].sort());
 
   // A trigger a few minutes later finds nothing due for these businesses.
-  const later = await claimDueAutomation(createAdminClient(), new Date(now.getTime() + 5 * 60_000));
+  const later = await claimDueAutomation(createAdminClient(), new Date(now.getTime() + 5 * 60_000), 1000);
   assert.deepEqual(later.claimed.filter((id) => mine.has(id)), []);
 
   // An hour later the claimed ones and the "recent" one are due again.
-  const nextHour = await claimDueAutomation(createAdminClient(), new Date(now.getTime() + 60 * 60_000));
+  const nextHour = await claimDueAutomation(createAdminClient(), new Date(now.getTime() + 60 * 60_000), 1000);
   assert.deepEqual(
     nextHour.claimed.filter((id) => mine.has(id)).sort(),
     [orgs.never, orgs.overdue, orgs.recent].sort()

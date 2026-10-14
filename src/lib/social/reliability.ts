@@ -377,6 +377,59 @@ export async function updateLockedJob(
   return true;
 }
 
+/**
+ * The provider may have received the post but we have no proof either way:
+ * park the job as `uncertain` (never retried automatically, blocks any new
+ * job for the same content + account) and tell a person to check.
+ */
+async function markUncertain(
+  admin: Admin,
+  job: {
+    id: string;
+    organisation_id: string;
+    platform: string;
+    lock_token?: string | null;
+    content_platform_id?: string | null;
+  },
+  message: string,
+  metadata: Record<string, unknown> = {}
+) {
+  const ok = await updateLockedJob(admin, job, {
+    status: "uncertain",
+    hold_reason: "UNCERTAIN_OUTCOME",
+    held_at: new Date().toISOString(),
+    locked_at: null,
+    lock_token: null,
+    error_type: "AMBIGUOUS_TIMEOUT",
+    error_code: "UNCERTAIN_OUTCOME",
+    error_message: message,
+  });
+  if (!ok) return false;
+  if (job.content_platform_id) {
+    await admin
+      .from("content_platforms")
+      .update({ publish_status: "held", error_message: message })
+      .eq("id", job.content_platform_id);
+  }
+  await logAutomationActivity(admin, {
+    organisationId: job.organisation_id,
+    eventType: "publish_uncertain",
+    message: humanPublishMessage({
+      platform: job.platform,
+      errorType: "AMBIGUOUS_TIMEOUT",
+      message,
+    }),
+    severity: "error",
+    metadata: { job_id: job.id, ...metadata },
+  });
+  await notifyAutomationIssue({
+    organisationId: job.organisation_id,
+    title: `${job.platform} post may already be live`,
+    body: message,
+  });
+  return true;
+}
+
 async function markRetryOrFail(
   admin: Admin,
   job: {
@@ -795,7 +848,8 @@ export async function processClaimedPublishJob(
         request_summary: { simulated, ambiguous: true },
       });
 
-      await markRetryOrFail(admin, job, ambiguous);
+      // Not "failed": a failed job could be retried with one click.
+      await markUncertain(admin, job, ambiguous.message, { ambiguous_timeout: true });
       await observe({
         organisationId: job.organisation_id,
         platform: job.platform,
@@ -1038,39 +1092,10 @@ export async function recoverAbandonedLocks(admin: Admin) {
     if (job.request_sent_at) {
       const message =
         "The publishing worker stopped after sending this post to the platform, so it may already be live. Check the account before retrying.";
-      const ok = await updateLockedJob(admin, job, {
-        status: "uncertain",
-        hold_reason: "UNCERTAIN_OUTCOME",
-        held_at: new Date().toISOString(),
-        locked_at: null,
-        lock_token: null,
-        error_type: "AMBIGUOUS_TIMEOUT",
-        error_code: "UNCERTAIN_OUTCOME",
-        error_message: message,
+      const ok = await markUncertain(admin, job, message, {
+        request_sent_at: job.request_sent_at,
       });
       if (!ok) continue;
-      if (job.content_platform_id) {
-        await admin
-          .from("content_platforms")
-          .update({ publish_status: "held", error_message: message })
-          .eq("id", job.content_platform_id);
-      }
-      await logAutomationActivity(admin, {
-        organisationId: job.organisation_id,
-        eventType: "publish_uncertain",
-        message: humanPublishMessage({
-          platform: job.platform,
-          errorType: "AMBIGUOUS_TIMEOUT",
-          message,
-        }),
-        severity: "error",
-        metadata: { job_id: job.id, request_sent_at: job.request_sent_at },
-      });
-      await notifyAutomationIssue({
-        organisationId: job.organisation_id,
-        title: `${job.platform} post may already be live`,
-        body: message,
-      });
       recovered += 1;
       continue;
     }

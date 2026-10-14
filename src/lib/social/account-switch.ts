@@ -75,16 +75,6 @@ export async function holdJobsForAccountChange(
   const contentIds = [...new Set((held || []).map((j) => j.content_id))];
   let siblingHeld: string[] = [];
   if (contentIds.length) {
-    const { error: contentError } = await admin
-      .from("content")
-      .update({ status: "review" })
-      .eq("organisation_id", input.organisationId)
-      .in("id", contentIds)
-      .in("status", ["approved", "scheduled", "failed"]);
-    if (contentError) {
-      throw new Error(`Could not return posts to review: ${contentError.message}`);
-    }
-
     // Review applies to the whole post: hold its other platforms' queued
     // jobs now (rather than when the worker reaches them) so the UI shows it.
     const { data: siblings, error: siblingError } = await admin
@@ -120,6 +110,19 @@ export async function holdJobsForAccountChange(
       }
     }
     siblingHeld = (siblings || []).map((j) => j.id);
+
+    // Last: moving a post out of approved also holds any remaining queued
+    // jobs (content_material_edit_guard), so the siblings are held above
+    // first to report them accurately.
+    const { error: contentError } = await admin
+      .from("content")
+      .update({ status: "review" })
+      .eq("organisation_id", input.organisationId)
+      .in("id", contentIds)
+      .in("status", ["approved", "scheduled", "failed"]);
+    if (contentError) {
+      throw new Error(`Could not return posts to review: ${contentError.message}`);
+    }
   }
 
   return {

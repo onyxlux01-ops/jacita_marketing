@@ -17,6 +17,8 @@ async function getAuthed() {
 export async function retryFailedPublishJob(input: {
   organisationId: string;
   jobId: string;
+  /** Required for an `uncertain` job: the user checked the platform and the post is not live. */
+  confirmNotLive?: boolean;
 }) {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
@@ -38,6 +40,7 @@ export async function retryFailedPublishJob(input: {
     organisationId: input.organisationId,
     userId: auth.user.id,
     force: true,
+    confirmNotLive: input.confirmNotLive === true,
   });
 
   revalidatePath("/app/automation");
@@ -45,7 +48,10 @@ export async function retryFailedPublishJob(input: {
   revalidatePath("/app");
 
   if (result && "error" in result && result.error) {
-    return { error: String(result.error) };
+    return {
+      error: String(result.error),
+      needsConfirmation: "needsConfirmation" in result && result.needsConfirmation === true,
+    };
   }
   return { success: true, result };
 }

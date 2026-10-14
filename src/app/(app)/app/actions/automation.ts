@@ -17,6 +17,7 @@ import {
 } from "@/lib/automation/engine";
 import {
   describeSkippedPlatforms,
+  CANCELLABLE_JOB_STATUSES,
   enqueuePublishJobsForContent,
   upcomingScheduleTime,
 } from "@/lib/social/scheduler";
@@ -278,15 +279,20 @@ export async function emergencyStopAutomation(organisationId: string) {
     .eq("organisation_id", organisationId)
     .in("status", ["pending", "running"]);
 
-  // Cancel pending publish jobs (keep content/data)
-  await admin
+  // Cancel every queued or held publish job (keep content/data). Processing
+  // jobs are left to finish; uncertain ones still need a person to check.
+  const { error: jobsError } = await admin
     .from("social_publish_jobs")
     .update({
       status: "cancelled",
       error_message: "Emergency stop",
+      error_code: "EMERGENCY_STOP",
     })
     .eq("organisation_id", organisationId)
-    .eq("status", "pending");
+    .in("status", [...CANCELLABLE_JOB_STATUSES]);
+  if (jobsError) {
+    return { error: `Emergency stop could not cancel queued posts: ${jobsError.message}` };
+  }
 
   await admin
     .from("automation_runs")
@@ -502,12 +508,19 @@ export async function rejectContent(input: {
   if (error) return { error: error.message };
 
   const admin = createAdminClient();
-  await admin
+  const { error: jobsError } = await admin
     .from("social_publish_jobs")
-    .update({ status: "cancelled", error_message: "Content rejected" })
+    .update({
+      status: "cancelled",
+      error_message: "Content rejected",
+      error_code: "CONTENT_REJECTED",
+    })
     .eq("content_id", input.contentId)
     .eq("organisation_id", input.organisationId)
-    .eq("status", "pending");
+    .in("status", [...CANCELLABLE_JOB_STATUSES]);
+  if (jobsError) {
+    return { error: `Rejected, but queued posts could not be cancelled: ${jobsError.message}` };
+  }
 
   await logAutomationActivity(admin, {
     organisationId: input.organisationId,

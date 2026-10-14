@@ -27,6 +27,8 @@ type State = {
   postCounter: number;
   /** Simulated provider latency, to make concurrent requests overlap. */
   publishDelayMs: number;
+  /** When set, adapter.publish() throws this message AFTER recording the call. */
+  publishError: string | null;
 };
 
 const g = globalThis as unknown as { __jacitaItest?: State };
@@ -39,10 +41,12 @@ export const itest: State =
     metaFetch: null,
     postCounter: 0,
     publishDelayMs: 0,
+    publishError: null,
   });
 
 export function resetProviders() {
   itest.publishCalls.length = 0;
   itest.metaFetch = null;
   itest.publishDelayMs = 0;
+  itest.publishError = null;
 }

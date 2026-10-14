@@ -139,22 +139,40 @@ export function PublishingReliabilityPanel({
                     size="sm"
                     variant="outline"
                     disabled={pending}
-                    onClick={() =>
+                    onClick={() => {
+                      const uncertain = f.status === "uncertain";
+                      // An uncertain post may already be live: make the
+                      // person check the platform before republishing.
+                      if (
+                        uncertain &&
+                        !window.confirm(
+                          `This ${f.platform} post may already be live.\n\nOpen ${f.platform} and check the account first. Only continue if the post is NOT there; otherwise it will be posted twice.\n\nI checked: the post is not live. Retry now?`
+                        )
+                      ) {
+                        return;
+                      }
                       startTransition(async () => {
                         const res = await retryFailedPublishJob({
                           organisationId,
                           jobId: f.id,
+                          confirmNotLive: uncertain,
                         });
                         if ("error" in res && res.error) toast.error(res.error);
                         else {
                           toast.success("Retry started");
                           router.refresh();
                         }
-                      })
-                    }
+                      });
+                    }}
                   >
-                    Retry safely
+                    {f.status === "uncertain" ? "Check, then retry" : "Retry safely"}
                   </Button>
+                  {f.status === "uncertain" ? (
+                    <p className="basis-full text-xs text-amber-900">
+                      Outcome unknown: this post may already be on {f.platform}.
+                      Nothing is retried automatically.
+                    </p>
+                  ) : null}
                   <Button size="sm" variant="ghost" asChild>
                     <Link href="/app/social">Reconnect account</Link>
                   </Button>
