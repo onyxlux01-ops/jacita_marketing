@@ -15,7 +15,11 @@ import {
   runAutomationForOrganisation,
   getOrgSetupReadiness,
 } from "@/lib/automation/engine";
-import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
+import {
+  describeSkippedPlatforms,
+  enqueuePublishJobsForContent,
+  upcomingScheduleTime,
+} from "@/lib/social/scheduler";
 import { notifyAutomationIssue } from "@/lib/automation/notify";
 import type { Json } from "@/lib/database.types";
 
@@ -384,18 +388,21 @@ export async function approveContent(input: {
     .maybeSingle();
 
   if (!content) return { error: "Content not found for this business" };
+  if (content.status === "published" || content.status === "publishing") {
+    return { error: "This post is already published or publishing" };
+  }
 
-  const scheduledAt =
-    content.scheduled_at ||
-    content.suggested_posting_time ||
-    new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  // The stored or suggested time; one that has passed becomes "soon" (the
+  // scheduler refuses past times).
+  const scheduledAt = upcomingScheduleTime(
+    content.scheduled_at || content.suggested_posting_time,
+    { fallbackMs: 2 * 60 * 60_000 }
+  );
 
+  // 1. Approve (the approval stands even if nothing can be queued).
   const { data: marked, error } = await auth.supabase
     .from("content")
-    .update({
-      status: "scheduled",
-      scheduled_at: scheduledAt,
-    })
+    .update({ status: "approved" })
     .eq("id", input.contentId)
     .eq("organisation_id", input.organisationId)
     .select("id");
@@ -403,6 +410,16 @@ export async function approveContent(input: {
   if (error) return { error: error.message };
   if (!marked?.length) return { error: "Content could not be approved" };
 
+  await auth.supabase.from("content_events").insert({
+    organisation_id: input.organisationId,
+    content_id: input.contentId,
+    event_type: "approved",
+    actor_id: auth.user.id,
+    summary: "Approved from automation control centre",
+  });
+
+  // 2. Schedule in one transaction (schedule_content RPC): jobs, platform
+  //    rows and content status all change together, or nothing does.
   const queued = await enqueuePublishJobsForContent({
     contentId: input.contentId,
     organisationId: input.organisationId,
@@ -410,18 +427,12 @@ export async function approveContent(input: {
     userId: auth.user.id,
   });
   if (queued.error || !queued.jobIds.length) {
-    // Approval stands, but don't show it as scheduled when nothing queued.
-    if (!queued.jobIds.length) {
-      await auth.supabase
-        .from("content")
-        .update({ status: "approved", scheduled_at: content.scheduled_at })
-        .eq("id", input.contentId)
-        .eq("organisation_id", input.organisationId);
-    }
+    revalidateAutomation();
     return {
-      error:
+      error: `Approved, but not scheduled: ${
         queued.error ||
-        "Approved, but no connected account matches this content's platforms, so nothing was scheduled.",
+        "no connected account matches this content's platforms."
+      }`,
     };
   }
 
@@ -434,16 +445,8 @@ export async function approveContent(input: {
     metadata: { content_id: input.contentId },
   });
 
-  await auth.supabase.from("content_events").insert({
-    organisation_id: input.organisationId,
-    content_id: input.contentId,
-    event_type: "approved",
-    actor_id: auth.user.id,
-    summary: "Approved from automation control centre",
-  });
-
   revalidateAutomation();
-  return { success: true };
+  return { success: true, warning: describeSkippedPlatforms(queued) };
 }
 
 export async function rejectContent(input: {

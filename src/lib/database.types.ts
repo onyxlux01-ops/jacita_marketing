@@ -2722,6 +2722,18 @@ export type Database = {
         }
         Returns: Database["public"]["Tables"]["social_publish_jobs"]["Row"][]
       }
+      schedule_content: {
+        Args: {
+          p_content_id: string
+          p_scheduled_at: string
+          p_actor_user_id: string
+          p_version_hash: string
+          p_payload_snapshot?: Json
+          p_platforms?: Database["public"]["Enums"]["social_platform"][]
+          p_allow_immediate?: boolean
+        }
+        Returns: Json
+      }
       transfer_ownership: {
         Args: {
           p_organisation_id: string

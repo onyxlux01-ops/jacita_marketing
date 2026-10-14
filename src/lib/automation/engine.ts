@@ -8,7 +8,10 @@ import {
   goalLabel,
   mapLegacyObjective,
 } from "@/lib/ai";
-import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
+import {
+  enqueuePublishJobsForContent,
+  upcomingScheduleTime,
+} from "@/lib/social/scheduler";
 import { buildFatigueSignals } from "@/lib/ai/fatigue";
 import {
   ensureAutomationSettings,
@@ -696,31 +699,26 @@ export async function runAutomationForOrganisation(input: {
               contentOrganisationId: organisationId,
               platformsAllowed: settings.platforms,
             });
-            const { error: markError } = scheduleGate.ok
-              ? await admin
-                  .from("content")
-                  .update({ status: "scheduled", scheduled_at: scheduledAt })
-                  .eq("id", contentRow.id)
-                  .eq("organisation_id", organisationId)
-              : { error: null };
-            if (markError) errors.push(`Could not schedule content: ${markError.message}`);
-            if (scheduleGate.ok && !markError) {
+            if (scheduleGate.ok) {
+              // One transaction: jobs + content/platform status (or nothing).
               const queued = await enqueuePublishJobsForContent({
                 contentId: contentRow.id,
                 organisationId,
-                scheduledAt,
+                scheduledAt: upcomingScheduleTime(scheduledAt),
                 userId: actorId,
               });
-              if (queued.error) errors.push(queued.error);
-
-              await logAutomationActivity(admin, {
-                organisationId,
-                runId,
-                eventType: "scheduled",
-                message: `AI scheduled ${platform} post for ${new Date(scheduledAt).toLocaleString()}`,
-                severity: "success",
-              });
-              actionsTaken += 1;
+              if (queued.error) {
+                errors.push(queued.error);
+              } else {
+                await logAutomationActivity(admin, {
+                  organisationId,
+                  runId,
+                  eventType: "scheduled",
+                  message: `AI scheduled ${platform} post for ${new Date(scheduledAt).toLocaleString()}`,
+                  severity: "success",
+                });
+                actionsTaken += 1;
+              }
             }
           } else if (settings.mode === "approval") {
             await logAutomationActivity(admin, {
@@ -786,9 +784,7 @@ export async function runAutomationForOrganisation(input: {
           .limit(remaining);
 
         for (const item of ready ?? []) {
-          const when =
-            item.scheduled_at ||
-            new Date(Date.now() + 60 * 60 * 1000).toISOString();
+          const when = upcomingScheduleTime(item.scheduled_at);
           const platformsRaw = (
             item as {
               content_platforms?: Array<{ platform: SocialPlatform }> | null;
@@ -816,18 +812,17 @@ export async function runAutomationForOrganisation(input: {
           );
           if (!gate.ok) continue;
 
-          await admin
-            .from("content")
-            .update({ status: "scheduled", scheduled_at: when })
-            .eq("id", item.id);
-
+          // One transaction: jobs + content/platform status (or nothing).
           const queued = await enqueuePublishJobsForContent({
             contentId: item.id,
             organisationId,
             scheduledAt: when,
             userId: actorId,
           });
-          if (queued.error) errors.push(queued.error);
+          if (queued.error) {
+            errors.push(queued.error);
+            continue;
+          }
 
           await logAutomationActivity(admin, {
             organisationId,
@@ -922,35 +917,83 @@ export async function runAutomationForOrganisation(input: {
   }
 }
 
+/** A business is due for its hourly automation run after this long. */
+export const AUTOMATION_INTERVAL_MS = 55 * 60 * 1000;
+
 /**
- * Run automation for all enabled businesses (cron).
- * Each org is isolated — failures do not stop others.
+ * Claim every business whose hourly automation run is due: enabled, not
+ * paused, not off, and last_run_at older than AUTOMATION_INTERVAL_MS (or
+ * never run). Each claim is a conditional UPDATE of last_run_at, so of two
+ * overlapping triggers only one wins a given business; a trigger that comes
+ * late (or after a skipped one) still finds the overdue business and runs it.
+ *
+ * last_run_at is the time of the last CLAIMED run (also set by manual runs).
+ * A run that fails is not retried until the next interval: failures are
+ * recorded on the run and in automation_settings.last_error instead, so a
+ * persistent failure cannot burn AI quota every five minutes.
  */
-export async function runAutomationForAllEnabled() {
-  const admin = createAdminClient();
-  const { data: rows } = await admin
+export async function claimDueAutomation(
+  admin: Admin,
+  now = new Date()
+): Promise<{ claimed: string[]; alreadyClaimed: number }> {
+  const cutoff = new Date(now.getTime() - AUTOMATION_INTERVAL_MS).toISOString();
+  const due = `last_run_at.is.null,last_run_at.lt.${cutoff}`;
+  const { data: rows, error } = await admin
     .from("automation_settings")
     .select("organisation_id")
     .eq("enabled", true)
     .eq("paused", false)
-    .neq("mode", "off");
+    .neq("mode", "off")
+    .or(due);
+  if (error) throw new Error(`Could not list due automation: ${error.message}`);
+
+  const claimed: string[] = [];
+  let alreadyClaimed = 0;
+  for (const row of rows ?? []) {
+    const { data, error: claimError } = await admin
+      .from("automation_settings")
+      .update({ last_run_at: now.toISOString() })
+      .eq("organisation_id", row.organisation_id)
+      .eq("enabled", true)
+      .eq("paused", false)
+      .neq("mode", "off")
+      .or(due)
+      .select("organisation_id");
+    if (claimError) {
+      throw new Error(`Could not claim automation run: ${claimError.message}`);
+    }
+    if (data?.length) claimed.push(row.organisation_id);
+    else alreadyClaimed += 1;
+  }
+  return { claimed, alreadyClaimed };
+}
+
+/**
+ * Cron entry for all enabled businesses. Safe to call as often as you like
+ * (the GitHub workflow calls it every 5 minutes; vercel.json adds a daily
+ * backup call): each business runs at most once per AUTOMATION_INTERVAL_MS.
+ * Each business is isolated — failures do not stop others.
+ */
+export async function runAutomationForAllEnabled(now = new Date()) {
+  const admin = createAdminClient();
+  const { claimed, alreadyClaimed } = await claimDueAutomation(admin, now);
 
   const results = [];
-  for (const row of rows ?? []) {
+  for (const organisationId of claimed) {
     try {
       const result = await runAutomationForOrganisation({
-        organisationId: row.organisation_id,
+        organisationId,
         trigger: "cron",
       });
       results.push(result);
     } catch (e) {
       results.push({
-        organisationId: row.organisation_id,
+        organisationId,
         error: e instanceof Error ? e.message : "failed",
       });
     }
   }
-  return { processed: results.length, results };
+  return { processed: results.length, skippedAlreadyClaimed: alreadyClaimed, results };
 }
 
 export async function getOrgSetupReadiness(

@@ -5,10 +5,18 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
-import { assertLocalUrl } from "../lib/assert-local-db.mjs";
+import {
+  assertLocalUrl,
+  LOCAL_API_PORT,
+  LOCAL_DB_PORT,
+} from "../lib/assert-local-db.mjs";
 import { itest } from "./state";
 
-const url = assertLocalUrl(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+const url = assertLocalUrl(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  "NEXT_PUBLIC_SUPABASE_URL",
+  LOCAL_API_PORT
+);
 const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -85,7 +93,7 @@ export async function addMember(
  * the LOCAL Postgres (guarded) and bypasses that trigger for the fixture.
  */
 export async function makePlatformAdmin(userId: string) {
-  const dbUrl = assertLocalUrl(process.env.SUPABASE_DB_URL!, "SUPABASE_DB_URL");
+  const dbUrl = assertLocalUrl(process.env.SUPABASE_DB_URL!, "SUPABASE_DB_URL", LOCAL_DB_PORT);
   const { default: pg } = await import("pg");
   const client = new pg.Client({ connectionString: dbUrl });
   await client.connect();
@@ -186,6 +194,21 @@ export async function createContent(
   }
   return { contentId: data.id as string, platformIds };
 }
+
+/**
+ * Scheduling refuses past times, so tests schedule a little ahead and then
+ * make the queued jobs due with the service role.
+ */
+export async function makeDue(contentId: string) {
+  const { error } = await admin
+    .from("social_publish_jobs")
+    .update({ scheduled_at: new Date(Date.now() - 30_000).toISOString() })
+    .eq("content_id", contentId)
+    .in("status", ["pending", "ready"]);
+  if (error) throw error;
+}
+
+export const soon = () => new Date(Date.now() + 120_000).toISOString();
 
 export async function jobsFor(contentId: string) {
   const { data, error } = await admin

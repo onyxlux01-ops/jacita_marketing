@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["./**/*.ts", "./**/*.mts", "../../src/**/*.ts", "../../next-env.d.ts", "../../.next/types/**/*.ts"],
+  "exclude": []
+}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import type { Json, SocialPlatform } from "@/lib/database.types";
 import type { ContentStatus } from "@/lib/types";
+import { upcomingScheduleTime } from "@/lib/social/scheduler";
 
 async function getAuthed() {
   if (!hasSupabaseEnv()) return { error: "Supabase is not configured" as const };
@@ -104,10 +105,12 @@ export async function saveContentPackage(payload: {
 
   const status = payload.status ?? "draft";
   let scheduledAt = payload.scheduled_at ?? null;
-  if (status === "scheduled" && !scheduledAt) {
-    scheduledAt =
-      payload.suggested_posting_time ||
-      new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  if (status === "scheduled") {
+    // The studio's time is the AI-suggested one (implicit): one that has
+    // passed becomes "soon" rather than being refused by the scheduler.
+    scheduledAt = upcomingScheduleTime(
+      payload.scheduled_at || payload.suggested_posting_time
+    );
   }
 
   // Never auto-publish

@@ -4,7 +4,6 @@ import {
   processDuePublishJobsReliable,
   processClaimedPublishJob,
   claimPublishJob,
-  buildIdempotencyKey,
   newLockToken,
 } from "@/lib/social/reliability";
 import {
@@ -13,6 +12,7 @@ import {
   resolveContentPlatform,
 } from "@/lib/social/publish-authz";
 import type { SocialPlatform } from "@/lib/types";
+import type { Json } from "@/lib/database.types";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -24,15 +24,57 @@ export async function processDuePublishJobs(limit = 15) {
   return processDuePublishJobsReliable(limit);
 }
 
-export type EnqueueResult = { jobIds: string[]; error?: string };
+/**
+ * For IMPLICIT schedule times only (an AI-suggested time, the post's stored
+ * time when approving): the scheduler refuses past times, so a missing or
+ * passed time becomes "soon" instead. A time the user typed is never bumped;
+ * it goes to the scheduler as-is and a past one is rejected with a message.
+ */
+export function upcomingScheduleTime(
+  preferred: string | null | undefined,
+  opts: { now?: number; fallbackMs?: number; bumpMs?: number } = {}
+) {
+  const now = opts.now ?? Date.now();
+  const t = preferred ? new Date(preferred).getTime() : Number.NaN;
+  if (Number.isNaN(t)) {
+    return new Date(now + (opts.fallbackMs ?? 60 * 60_000)).toISOString();
+  }
+  if (t > now + 60_000) return new Date(t).toISOString();
+  return new Date(now + (opts.bumpMs ?? 15 * 60_000)).toISOString();
+}
+
+export type SchedulePlatformResult = {
+  platform: SocialPlatform;
+  status: "queued" | "no_account";
+  job_id?: string;
+  social_account_id?: string;
+};
+
+export type EnqueueResult = {
+  jobIds: string[];
+  error?: string;
+  code?: string;
+  platforms?: SchedulePlatformResult[];
+};
+
+type ScheduleRpcResult = {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  organisation_id?: string;
+  platforms?: SchedulePlatformResult[];
+};
 
 /**
- * Enqueue publish jobs for content platforms (service role).
+ * Schedule (queue) publish jobs for a post through the schedule_content RPC:
+ * target validation, job replacement and content/platform status updates
+ * happen in ONE database transaction. If no connected account matches, or
+ * any insert fails, nothing changes (old jobs are kept).
  *
- * Authorisation is enforced here, not only in callers: `userId` must be an
- * owner/manager of the business and the content must already be approved /
- * scheduled (or a failed post being retried). Every write result is checked.
- * Snapshots content version so later edits cannot silently publish stale copy.
+ * The RPC re-checks that `userId` is an owner/manager and that the content is
+ * approved / scheduled / failed, so every caller (UI actions, approval,
+ * automation, Publish now) gets the same rules. The content's version is
+ * snapshotted so later edits cannot silently publish stale copy.
  */
 export async function enqueuePublishJobsForContent(input: {
   organisationId: string;
@@ -41,148 +83,60 @@ export async function enqueuePublishJobsForContent(input: {
   userId: string;
   /** Limit to these platforms (manual "Publish now" for one account). */
   platforms?: SocialPlatform[];
+  /** Allow "now" (Publish now) instead of rejecting past timestamps. */
+  allowImmediate?: boolean;
 }): Promise<EnqueueResult> {
   const admin = createAdminClient();
 
-  if (Number.isNaN(new Date(input.scheduledAt).getTime())) {
-    return { jobIds: [], error: "Invalid schedule time" };
+  const when = new Date(input.scheduledAt);
+  if (!input.scheduledAt || Number.isNaN(when.getTime())) {
+    return { jobIds: [], error: "Invalid schedule time", code: "INVALID_TIME" };
   }
 
-  let role;
-  try {
-    role = await getPublisherRole(admin, input.organisationId, input.userId);
-  } catch (e) {
-    return { jobIds: [], error: e instanceof Error ? e.message : "Membership lookup failed" };
-  }
-  if (!role) {
-    return {
-      jobIds: [],
-      error: "Only owners and managers can queue content for publishing",
-    };
-  }
-
-  const { data: content, error: contentError } = await admin
-    .from("content")
-    .select("id, status")
-    .eq("id", input.contentId)
-    .eq("organisation_id", input.organisationId)
-    .maybeSingle();
-  if (contentError) return { jobIds: [], error: contentError.message };
-  if (!content) return { jobIds: [], error: "Content not found for this business" };
-  if (!contentStatusAllows(content.status, "enqueue")) {
-    return {
-      jobIds: [],
-      error: "Approve this content before it can be scheduled or published",
-    };
-  }
-
+  // Also proves the content belongs to this business.
   const snapshot = await buildPayloadSnapshot(
     admin,
     input.contentId,
     input.organisationId
   );
-  if (!snapshot) return { jobIds: [], error: "Content not found for this business" };
-
-  const { data: platforms, error: platformsError } = await admin
-    .from("content_platforms")
-    .select("id, platform")
-    .eq("content_id", input.contentId);
-  if (platformsError) return { jobIds: [], error: platformsError.message };
-
-  const { data: accounts, error: accountsError } = await admin
-    .from("social_accounts")
-    .select("id, platform, connection_status, organisation_id, external_account_id")
-    .eq("organisation_id", input.organisationId)
-    .eq("connection_status", "connected");
-  if (accountsError) return { jobIds: [], error: accountsError.message };
-
-  const byPlatform = new Map(
-    (accounts || []).map((a) => [a.platform, a] as const)
-  );
-
-  // Cancel prior queued / held jobs for this content before creating new ones
-  // (re-queueing is how held jobs get re-approved).
-  let cancelQuery = admin
-    .from("social_publish_jobs")
-    .update({
-      status: "cancelled",
-      error_message: "Rescheduled or replaced",
-      error_type: "STALE_CONTENT",
-    })
-    .eq("content_id", input.contentId)
-    .eq("organisation_id", input.organisationId)
-    .in("status", ["pending", "ready", "retrying", "held"]);
-  if (input.platforms?.length) {
-    cancelQuery = cancelQuery.in("platform", input.platforms);
-  }
-  const { error: cancelError } = await cancelQuery;
-  if (cancelError) return { jobIds: [], error: cancelError.message };
-
-  const versionHash = snapshot.versionHash;
-  const payload = (snapshot.snapshot || {}) as Record<string, unknown>;
-  const created: string[] = [];
-  const errors: string[] = [];
-
-  for (const cp of platforms || []) {
-    if (input.platforms?.length && !input.platforms.includes(cp.platform)) {
-      continue;
-    }
-    const account = byPlatform.get(cp.platform);
-    if (!account) continue;
-    if (account.organisation_id !== input.organisationId) continue;
-
-    const { error: cpError } = await admin
-      .from("content_platforms")
-      .update({
-        publish_status: "scheduled",
-        scheduled_at: input.scheduledAt,
-        social_account_id: account.id,
-        error_message: null,
-      })
-      .eq("id", cp.id)
-      .eq("content_id", input.contentId);
-    if (cpError) {
-      errors.push(`${cp.platform}: ${cpError.message}`);
-      continue;
-    }
-
-    const idempotencyKey = buildIdempotencyKey({
-      organisationId: input.organisationId,
-      contentId: input.contentId,
-      socialAccountId: account.id,
-      versionHash,
-    });
-
-    const { data: job, error: jobError } = await admin
-      .from("social_publish_jobs")
-      .insert({
-        organisation_id: input.organisationId,
-        content_id: input.contentId,
-        content_platform_id: cp.id,
-        social_account_id: account.id,
-        target_external_account_id: account.external_account_id,
-        platform: cp.platform,
-        scheduled_at: input.scheduledAt,
-        status: "pending",
-        max_attempts: 4,
-        created_by: input.userId,
-        content_version_hash: versionHash,
-        payload_snapshot: payload as import("@/lib/database.types").Json,
-        idempotency_key: idempotencyKey,
-      })
-      .select("id")
-      .single();
-
-    if (jobError || !job?.id) {
-      errors.push(`${cp.platform}: ${jobError?.message || "job not created"}`);
-      continue;
-    }
-    created.push(job.id);
+  if (!snapshot) {
+    return { jobIds: [], error: "Content not found for this business", code: "NOT_FOUND" };
   }
 
-  return errors.length
-    ? { jobIds: created, error: `Could not queue every platform (${errors.join("; ")})` }
-    : { jobIds: created };
+  const { data, error } = await admin.rpc("schedule_content", {
+    p_content_id: input.contentId,
+    p_scheduled_at: when.toISOString(),
+    p_actor_user_id: input.userId,
+    p_version_hash: snapshot.versionHash,
+    p_payload_snapshot: snapshot.snapshot as Json,
+    p_platforms: input.platforms?.length ? input.platforms : undefined,
+    p_allow_immediate: Boolean(input.allowImmediate),
+  });
+  if (error) return { jobIds: [], error: error.message, code: "RPC_ERROR" };
+
+  const result = data as unknown as ScheduleRpcResult;
+  if (!result?.ok) {
+    return {
+      jobIds: [],
+      error: result?.error || "Could not schedule this post",
+      code: result?.code,
+      platforms: result?.platforms,
+    };
+  }
+  const platforms = result.platforms ?? [];
+  return {
+    jobIds: platforms
+      .filter((p) => p.status === "queued" && p.job_id)
+      .map((p) => p.job_id as string),
+    platforms,
+  };
+}
+
+/** Human summary of platforms that could not be queued (no account). */
+export function describeSkippedPlatforms(result: EnqueueResult) {
+  const skipped = (result.platforms ?? []).filter((p) => p.status === "no_account");
+  if (!skipped.length) return null;
+  return `Not queued for ${skipped.map((p) => p.platform).join(", ")} (no connected account).`;
 }
 
 /**
@@ -289,19 +243,14 @@ export async function publishContentViaJobPipeline(input: {
       scheduledAt: new Date().toISOString(),
       userId: input.userId,
       platforms: [account.platform],
+      allowImmediate: true,
     });
+    if (enqueued.code === "ALREADY_PUBLISHING") return IN_PROGRESS;
     // Only ever use the job for THIS account — never another platform's job.
-    const { data: justCreated } = await admin
-      .from("social_publish_jobs")
-      .select("id")
-      .eq("content_id", content.id)
-      .eq("social_account_id", account.id)
-      .eq("organisation_id", content.organisation_id)
-      .in("status", ["pending", "ready"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    jobId = justCreated?.id || null;
+    jobId =
+      enqueued.platforms?.find(
+        (p) => p.status === "queued" && p.social_account_id === account.id
+      )?.job_id ?? null;
     if (!jobId) {
       return {
         error:

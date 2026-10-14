@@ -5,6 +5,7 @@ import { setActiveOrganisationCookie } from "@/lib/org";
 import type { Database, Json, SocialPlatform } from "@/lib/database.types";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import type { ContentStatus } from "@/lib/types";
+import { upcomingScheduleTime } from "@/lib/social/scheduler";
 
 type AuditInput = {
   organisationId: string | null;
@@ -100,12 +101,11 @@ export async function updateContentStatus(
   };
 
   if (status === "scheduled") {
+    // An explicit time goes to the scheduler as-is (a past one is refused);
+    // the stored / suggested time is implicit and becomes "soon" if passed.
     const when =
       scheduledAt ||
-      existing.scheduled_at ||
-      existing.suggested_posting_time ||
-      new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    updates.scheduled_at = when;
+      upcomingScheduleTime(existing.scheduled_at || existing.suggested_posting_time);
 
     const { scheduleContentPublishing } = await import(
       "@/app/(app)/app/actions/social"

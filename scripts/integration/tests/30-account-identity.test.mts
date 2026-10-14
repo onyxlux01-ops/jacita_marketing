@@ -11,6 +11,7 @@ import {
   connectAccount,
   createContent,
   jobsFor,
+  soon,
   teamOrg,
 } from "../helpers.ts";
 import { itest } from "../state.ts";
@@ -56,7 +57,7 @@ test("identity: switching the Facebook Page holds queued jobs for re-approval", 
   const sched = await scheduleContentPublishing({
     contentId: queued.contentId,
     organisationId: orgId,
-    scheduledAt: new Date(Date.now() - 60_000).toISOString(),
+    scheduledAt: soon(),
   });
   actAs(null);
   assert.ok("success" in sched && sched.success, JSON.stringify(sched));

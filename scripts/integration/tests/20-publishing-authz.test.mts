@@ -10,6 +10,8 @@ import {
   connectAccount,
   createContent,
   jobsFor,
+  makeDue,
+  soon,
   membership,
   teamOrg,
 } from "../helpers.ts";
@@ -174,9 +176,10 @@ test("publish: revoked membership — cron holds the job instead of publishing",
   const sched = await scheduleContentPublishing({
     contentId,
     organisationId: orgId,
-    scheduledAt: new Date(Date.now() - 60_000).toISOString(),
+    scheduledAt: soon(),
   });
   assert.ok("success" in sched && sched.success, JSON.stringify(sched));
+  await makeDue(contentId);
 
   // Owner removes the manager who queued the post.
   const { removeTeamMember } = await import(
@@ -209,10 +212,11 @@ test("publish: content moved back to review — cron holds the job", async () =>
   const sched = await scheduleContentPublishing({
     contentId,
     organisationId: orgId,
-    scheduledAt: new Date(Date.now() - 60_000).toISOString(),
+    scheduledAt: soon(),
   });
   actAs(null);
   assert.ok("success" in sched && sched.success, JSON.stringify(sched));
+  await makeDue(contentId);
   await admin.from("content").update({ status: "review" }).eq("id", contentId);
 
   const { processDuePublishJobs } = await scheduler();

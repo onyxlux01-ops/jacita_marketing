@@ -30,18 +30,17 @@ jobs:
             "${BASE}/api/cron/publish-due"
           echo
 
-      - name: Trigger automation (top of hour or manual)
+      # Called on every run. The endpoint itself decides which businesses are
+      # due (automation_settings.last_run_at older than ~an hour) and claims
+      # each one atomically, so a late or skipped GitHub run catches up on the
+      # next run and overlapping triggers (incl. the Vercel daily backup in
+      # vercel.json) never run a business twice in the same hour.
+      - name: Trigger automation (runs whatever is due)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: ${{ vars.APP_URL }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          MINUTE=$(date -u +%M)
-          if [ "$EVENT_NAME" != "workflow_dispatch" ] && [ "$MINUTE" != "00" ]; then
-            echo "Skipping automation (minute=$MINUTE)"
-            exit 0
-          fi
           BASE="${APP_URL:-https://jacita-marketing.vercel.app}"
           BASE="${BASE%/}"
           echo "Calling ${BASE}/api/cron/automation"

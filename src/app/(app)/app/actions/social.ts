@@ -18,7 +18,10 @@ import {
 } from "@/lib/social/meta-app-credentials";
 import { metaFetch } from "@/lib/social/meta-client";
 import { getSocialAdapter } from "@/lib/social/registry";
-import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
+import {
+  describeSkippedPlatforms,
+  enqueuePublishJobsForContent,
+} from "@/lib/social/scheduler";
 import { contentStatusAllows } from "@/lib/social/publish-authz";
 import type { SocialPlatform } from "@/lib/types";
 
@@ -200,15 +203,8 @@ export async function scheduleContentPublishing(input: {
     return { error: "Approve this content before scheduling it" };
   }
 
-  const { data: marked, error: markError } = await auth.supabase
-    .from("content")
-    .update({ status: "scheduled", scheduled_at: scheduledAt })
-    .eq("id", input.contentId)
-    .eq("organisation_id", input.organisationId)
-    .select("id");
-  if (markError) return { error: markError.message };
-  if (!marked?.length) return { error: "Content could not be scheduled" };
-
+  // One transaction (schedule_content RPC): validates targets, replaces jobs
+  // and marks content + platform rows scheduled — or changes nothing.
   const jobs = await enqueuePublishJobsForContent({
     organisationId: input.organisationId,
     contentId: input.contentId,
@@ -217,18 +213,11 @@ export async function scheduleContentPublishing(input: {
   });
 
   if (jobs.error || !jobs.jobIds.length) {
-    // Do not leave content looking scheduled when nothing was queued.
-    if (!jobs.jobIds.length) {
-      await auth.supabase
-        .from("content")
-        .update({ status: content.status, scheduled_at: content.scheduled_at })
-        .eq("id", input.contentId)
-        .eq("organisation_id", input.organisationId);
-    }
     return {
       error:
         jobs.error ||
         "No connected social accounts match this content’s platforms. Connect accounts first.",
+      code: jobs.code,
     };
   }
 
@@ -238,12 +227,22 @@ export async function scheduleContentPublishing(input: {
     action: "content.scheduled_publish",
     entity_type: "content",
     entity_id: input.contentId,
-    metadata: { job_count: jobs.jobIds.length, scheduled_at: scheduledAt },
+    metadata: {
+      job_count: jobs.jobIds.length,
+      scheduled_at: scheduledAt,
+      platforms: jobs.platforms ?? [],
+    } as Json,
   });
 
   revalidatePath("/app/content");
   revalidatePath("/app/calendar");
-  return { success: true, jobIds: jobs.jobIds };
+  revalidatePath(`/app/content/${input.contentId}`);
+  return {
+    success: true,
+    jobIds: jobs.jobIds,
+    platforms: jobs.platforms ?? [],
+    warning: describeSkippedPlatforms(jobs),
+  };
 }
 
 export async function updateAutopilotMode(input: {

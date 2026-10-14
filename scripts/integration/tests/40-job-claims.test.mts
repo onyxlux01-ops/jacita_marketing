@@ -9,6 +9,8 @@ import {
   connectAccount,
   createContent,
   jobsFor,
+  makeDue,
+  soon,
   teamOrg,
 } from "../helpers.ts";
 import { itest } from "../state.ts";
@@ -54,9 +56,10 @@ test("claims: a manual publish overlapping cron publishes once", async () => {
   const sched = await scheduleContentPublishing({
     contentId: p.contentId,
     organisationId: p.orgId,
-    scheduledAt: new Date(Date.now() - 30_000).toISOString(),
+    scheduledAt: soon(),
   });
   assert.ok("success" in sched && sched.success, JSON.stringify(sched));
+  await makeDue(p.contentId);
   const { processDuePublishJobs } = await scheduler();
   itest.publishDelayMs = 400;
   const [cron, manual] = await Promise.all([

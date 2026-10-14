@@ -14,28 +14,30 @@ test("harness: guard rejects non-local hosts", () => {
   assert.equal(assertLocalUrl("http://localhost:55421"), "http://localhost:55421");
 });
 
+const env = (e: Record<string, string>) => e as unknown as NodeJS.ProcessEnv;
+
 test("harness: guard refuses the default ports (another project's stack)", () => {
   assert.throws(
     () => assertLocalUrl("http://127.0.0.1:54321", "api", LOCAL_API_PORT),
     /expected 55421/
   );
   assert.throws(
-    () => assertLocalSupabaseEnv({ NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321" }),
+    () => assertLocalSupabaseEnv(env({ NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321" })),
     /port/
   );
   assert.throws(
     () =>
-      assertLocalSupabaseEnv({
+      assertLocalSupabaseEnv(env({
         NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55421",
         SUPABASE_DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-      }),
+      })),
     /expected 55422/
   );
   assert.doesNotThrow(() =>
-    assertLocalSupabaseEnv({
+    assertLocalSupabaseEnv(env({
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55421",
       SUPABASE_DB_URL: "postgresql://postgres:postgres@127.0.0.1:55422/postgres",
-    })
+    }))
   );
 });
 
