@@ -333,6 +333,56 @@ test("ads: a cache write failure after Meta succeeded keeps the action counted",
     });
     assert.ok("success" in rec && rec.success, JSON.stringify(rec));
     assert.equal(await actionStatus(id), "succeeded");
+
+    // The campaign is live in Meta but not in the cache: new spend-affecting
+    // claims are refused until a sync that started after the reconcile.
+    await localSql(`drop trigger if exists itest_fail_cache on public.meta_ad_campaigns;`);
+    const { data: done } = await admin
+      .from("advertising_actions")
+      .select("external_ids")
+      .eq("id", id)
+      .single();
+    const liveId = String((done?.external_ids as { campaign_id?: string }).campaign_id);
+    const blocked = await approve(
+      b,
+      await propose(b, "CREATE_CAMPAIGN", { name: "Blocked", dailyBudgetCents: 100, status: "ACTIVE" })
+    );
+    assert.equal(blocked.code, "CACHE_SYNC_REQUIRED", JSON.stringify(blocked));
+
+    const syncCalls: Calls = [];
+    itest.metaFetch = async (path, params) => {
+      syncCalls.push({ path });
+      if (path.endsWith("/campaigns") && params.fields) {
+        return {
+          data: [
+            { id: liveId, name: "FAIL-CACHE (synced)", status: "ACTIVE", effective_status: "ACTIVE", daily_budget: "3000" },
+          ],
+        };
+      }
+      if (path.endsWith("/campaigns")) return { id: `cmp-after-sync-${Date.now()}` };
+      return { success: true };
+    };
+    const sync = await approve(b, await propose(b, "LIST_CAMPAIGNS", {}));
+    assert.ok(sync.success, JSON.stringify(sync));
+    const { data: settingsRow } = await admin
+      .from("advertising_settings")
+      .select("cache_sync_required_at")
+      .eq("organisation_id", b.orgId)
+      .single();
+    assert.equal(settingsRow?.cache_sync_required_at, null);
+
+    // Now the synced campaign counts: 3000 + 3000 > 5000, 3000 + 1500 fits.
+    const over = await approve(
+      b,
+      await propose(b, "CREATE_CAMPAIGN", { name: "Over", dailyBudgetCents: 3000, status: "ACTIVE" })
+    );
+    const fits = await approve(
+      b,
+      await propose(b, "CREATE_CAMPAIGN", { name: "Fits", dailyBudgetCents: 1500, status: "ACTIVE" })
+    );
+    itest.metaFetch = null;
+    assert.equal(over.code, "SPEND_LIMIT", JSON.stringify(over));
+    assert.ok(fits.success, JSON.stringify(fits));
   } finally {
     itest.metaFetch = null;
     await localSql(`drop trigger if exists itest_fail_cache on public.meta_ad_campaigns;

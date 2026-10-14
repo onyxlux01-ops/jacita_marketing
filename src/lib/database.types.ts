@@ -108,6 +108,7 @@ export type Database = {
       }
       advertising_settings: {
         Row: {
+          cache_sync_required_at: string | null
           created_at: string
           daily_spend_limit_cents: number
           emergency_stopped: boolean
@@ -120,6 +121,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cache_sync_required_at?: string | null
           created_at?: string
           daily_spend_limit_cents?: number
           emergency_stopped?: boolean
@@ -132,6 +134,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cache_sync_required_at?: string | null
           created_at?: string
           daily_spend_limit_cents?: number
           emergency_stopped?: boolean

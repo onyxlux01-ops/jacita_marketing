@@ -438,6 +438,7 @@ export async function approveAndExecuteAdvertisingAction(input: {
       metaAdAccountId: action.meta_ad_account_id as string | null,
       settings,
       isMutating,
+      startedAt: action.executing_started_at,
     });
 
     const { error: doneError } = await db
@@ -540,6 +541,8 @@ async function executeAdvertisingAction(input: {
   metaAdAccountId: string | null;
   settings: AdvertisingSettings;
   isMutating: boolean;
+  /** When this action was claimed (a sync clears only older sync flags). */
+  startedAt?: string | null;
 }) {
   if (!(await metaAdsAdapter.isConfiguredForOrg(input.organisationId))) {
     throw new Error("No Meta app is configured for this business.");
@@ -639,6 +642,18 @@ async function executeAdvertisingAction(input: {
       const listed = { campaigns, externalIds: {} };
       if (cacheErrors.length) {
         throw new AdsCacheWriteError(cacheErrors.join("; "), listed);
+      }
+      // A complete sync that started after a reconcile lifts the
+      // "sync required" block on new spend-affecting claims.
+      if (input.startedAt) {
+        const { error: clearError } = await db
+          .from("advertising_settings")
+          .update({ cache_sync_required_at: null })
+          .eq("organisation_id", input.organisationId)
+          .lte("cache_sync_required_at", input.startedAt);
+        if (clearError) {
+          console.error("could not clear ads sync flag", clearError.message);
+        }
       }
       return listed;
     }
