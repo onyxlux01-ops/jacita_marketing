@@ -40,27 +40,41 @@ export async function createOAuthState(input: {
   return state;
 }
 
-export async function consumeOAuthState(state: string) {
+/**
+ * Atomically consume an OAuth state: a single
+ *   UPDATE ... SET consumed_at = now()
+ *   WHERE state = $1 AND user_id = $2 AND platform = $3
+ *     AND consumed_at IS NULL AND expires_at > now()
+ *   RETURNING *
+ * Exactly one concurrent caller can win; no row means reject (unknown,
+ * replayed, expired, or issued to another user/platform).
+ */
+export async function consumeOAuthState(input: {
+  state: string;
+  userId: string;
+  platform: SocialPlatform;
+}) {
   const admin = createAdminClient();
+  const now = new Date().toISOString();
   const { data, error } = await admin
     .from("social_oauth_states")
-    .select("*")
-    .eq("state", state)
+    .update({ consumed_at: now })
+    .eq("state", input.state)
+    .eq("user_id", input.userId)
+    .eq("platform", input.platform)
     .is("consumed_at", null)
+    .gt("expires_at", now)
+    .select("*")
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  if (!data) return null;
-  if (new Date(data.expires_at).getTime() < Date.now()) {
-    return null;
-  }
+  return data ?? null;
+}
 
-  await admin
-    .from("social_oauth_states")
-    .update({ consumed_at: new Date().toISOString() })
-    .eq("id", data.id);
-
-  return data;
+/** Meta app id recorded when the OAuth flow started (see start route). */
+export function oauthStateMetaAppId(state: { metadata: unknown }) {
+  const meta = (state.metadata || {}) as { meta_app_id?: unknown };
+  return typeof meta.meta_app_id === "string" ? meta.meta_app_id : null;
 }
 
 export function getAppBaseUrl() {

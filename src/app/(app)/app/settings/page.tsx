@@ -7,7 +7,7 @@ import { getActiveOrganisation, getSessionUser, getUserOrganisations } from "@/l
 import type { Json, OrgRole } from "@/lib/database.types";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { SocialAccountsPanel } from "@/app/(app)/app/social/social-accounts-panel";
-import { getSocialAdapter } from "@/lib/social/registry";
+import { getPlatformConfigForOrg } from "@/lib/social/platform-config";
 import type { ConnectionStatus, SocialPlatform } from "@/lib/types";
 import { MARKETING_GOALS } from "@/lib/ai/goals";
 import { ServiceForm } from "@/app/(app)/app/services/service-form";
@@ -253,6 +253,15 @@ export default async function SettingsPage({
       }
       services = serviceData ?? [];
       const platforms: SocialPlatform[] = ["instagram", "facebook", "tiktok"];
+      // Per-business: Facebook/Instagram use this business's Meta app.
+      const configuredByPlatform = new Map(
+        await Promise.all(
+          platforms.map(
+            async (p) =>
+              [p, (await getPlatformConfigForOrg(p, active.id)).configured] as const
+          )
+        )
+      );
       socialAccounts = platforms.map((platform) => {
         const row = (socialData ?? []).find((r) => r.platform === platform);
         const meta = (row?.metadata || {}) as {
@@ -268,7 +277,7 @@ export default async function SettingsPage({
           account_handle: row?.account_handle ?? null,
           profile_image_url: row?.profile_image_url ?? null,
           last_error: row?.last_error ?? null,
-          configured: getSocialAdapter(platform).isConfigured(),
+          configured: configuredByPlatform.get(platform) ?? false,
           availablePages: meta.available_pages ?? [],
           selectedPageId: meta.page_id ?? null,
         };

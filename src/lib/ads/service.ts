@@ -440,8 +440,8 @@ async function executeAdvertisingAction(input: {
   settings: AdvertisingSettings;
   isMutating: boolean;
 }) {
-  if (!metaAdsAdapter.isConfigured()) {
-    throw new Error("Meta app credentials are not configured on the server.");
+  if (!(await metaAdsAdapter.isConfiguredForOrg(input.organisationId))) {
+    throw new Error("No Meta app is configured for this business.");
   }
 
   const tokenRes = await loadOrgMetaUserToken(input.organisationId);

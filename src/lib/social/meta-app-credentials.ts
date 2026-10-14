@@ -35,10 +35,21 @@ type OrgMetaAppRow = {
   label: string | null;
 };
 
+export class MetaAppCredentialsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaAppCredentialsError";
+  }
+}
+
 /**
  * Resolve the Meta app credentials to use for a given organisation.
- * Prefers the per-business override; falls back to the shared global app so
- * existing businesses (and the platform default) keep working unchanged.
+ *
+ * - Per-business override present → use it.
+ * - No override row → the shared global app (META_APP_ID/SECRET), if set.
+ * - Lookup or decrypt FAILURE → throw. Never silently fall back to the
+ *   global app: that would connect/publish this business through a
+ *   different Meta app than the one it configured.
  */
 export async function getMetaAppCredentialsForOrg(
   organisationId: string
@@ -48,21 +59,30 @@ export async function getMetaAppCredentialsForOrg(
     .eq("organisation_id", organisationId)
     .maybeSingle();
 
-  if (!error && data) {
+  if (error) {
+    throw new MetaAppCredentialsError(
+      `Could not load this business's Meta app settings: ${error.message}`
+    );
+  }
+
+  if (data) {
     const row = data as Pick<
       OrgMetaAppRow,
       "app_id" | "ciphertext" | "iv" | "auth_tag"
     >;
+    let appSecret: string;
     try {
-      const appSecret = decryptSecret({
+      appSecret = decryptSecret({
         ciphertext: row.ciphertext,
         iv: row.iv,
         authTag: row.auth_tag,
       });
-      return { appId: row.app_id, appSecret, source: "org" };
     } catch {
-      // Corrupt/undecryptable override — fall through to the shared app.
+      throw new MetaAppCredentialsError(
+        "This business's Meta app secret could not be decrypted. Re-enter it in Social Accounts."
+      );
     }
+    return { appId: row.app_id, appSecret, source: "org" };
   }
 
   const env = getMetaAppCredentials();
@@ -83,7 +103,12 @@ export async function getOrgMetaAppInfo(organisationId: string): Promise<{
     .eq("organisation_id", organisationId)
     .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
+    throw new MetaAppCredentialsError(
+      `Could not load this business's Meta app settings: ${error.message}`
+    );
+  }
+  if (!data) {
     return { hasOverride: false, appId: null, label: null };
   }
   const row = data as Pick<OrgMetaAppRow, "app_id" | "label">;

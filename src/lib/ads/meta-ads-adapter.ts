@@ -3,6 +3,7 @@
  * AI never calls this directly; only structured advertising_actions after approval.
  */
 import { metaFetch, getMetaAppCredentials } from "@/lib/social/meta-client";
+import { getMetaAppCredentialsForOrg } from "@/lib/social/meta-app-credentials";
 import type { TokenBundle } from "@/lib/social/types";
 import { SocialIntegrationError } from "@/lib/social/types";
 
@@ -60,8 +61,18 @@ function adAccountPath(externalId: string) {
 }
 
 export const metaAdsAdapter = {
+  /** Global (env) Meta app only. Prefer isConfiguredForOrg. */
   isConfigured() {
     return Boolean(getMetaAppCredentials());
+  },
+
+  /**
+   * Per-business check: the business's own Meta app when it has one, else
+   * the global app. Throws if the business's app settings can't be read or
+   * decrypted (never silently falls back to the global app).
+   */
+  async isConfiguredForOrg(organisationId: string) {
+    return Boolean(await getMetaAppCredentialsForOrg(organisationId));
   },
 
   async listAdAccounts(token: TokenBundle): Promise<MetaAdAccountInfo[]> {

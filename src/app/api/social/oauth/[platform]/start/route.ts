@@ -68,11 +68,23 @@ export async function GET(
 
   const adapter = getSocialAdapter(platform);
   const isMeta = platform === "facebook" || platform === "instagram";
-  // Meta platforms resolve credentials per-business (with global fallback);
-  // other platforms use their env-based isConfigured() check.
-  const metaCreds = isMeta
-    ? await getMetaAppCredentialsForOrg(organisationId)
-    : null;
+  // Meta platforms resolve credentials per-business (global app only when the
+  // business has no override); a lookup/decrypt failure stops the flow.
+  let metaCreds: Awaited<ReturnType<typeof getMetaAppCredentialsForOrg>> = null;
+  if (isMeta) {
+    try {
+      metaCreds = await getMetaAppCredentialsForOrg(organisationId);
+    } catch (e) {
+      return NextResponse.redirect(
+        new URL(
+          `/app/social?error=${encodeURIComponent(
+            e instanceof Error ? e.message : "Could not load Meta app settings."
+          )}`,
+          url.origin
+        )
+      );
+    }
+  }
   const configured = isMeta ? Boolean(metaCreds) : adapter.isConfigured();
   if (!configured) {
     return NextResponse.redirect(
@@ -97,6 +109,9 @@ export async function GET(
       platform,
       redirectPath: "/app/social",
       codeVerifier,
+      // Bind the flow to the Meta app it was started with; the callback
+      // refuses to exchange the code if the business's app changed since.
+      metadata: metaCreds ? { meta_app_id: metaCreds.appId } : {},
     });
 
     const authUrl = adapter.getAuthorizationUrl({

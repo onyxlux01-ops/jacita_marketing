@@ -334,7 +334,7 @@ export async function claimPublishJob(
     .eq("id", jobId)
     .in("status", ["pending", "ready", "retrying"])
     .select(
-      "id, organisation_id, content_id, content_platform_id, social_account_id, platform, attempt_count, max_attempts, created_by, scheduled_at, external_post_id, published_at, content_version_hash, payload_snapshot, idempotency_key, status"
+      "id, organisation_id, content_id, content_platform_id, social_account_id, platform, attempt_count, max_attempts, created_by, scheduled_at, external_post_id, published_at, content_version_hash, payload_snapshot, idempotency_key, status, target_external_account_id"
     )
     .maybeSingle();
 
@@ -461,6 +461,7 @@ export async function processClaimedPublishJob(
     content_version_hash: string | null;
     payload_snapshot: Json;
     idempotency_key: string | null;
+    target_external_account_id?: string | null;
   },
   options?: { force?: boolean }
 ) {
@@ -601,6 +602,22 @@ export async function processClaimedPublishJob(
     return { error: "account_blocked" };
   }
 
+  // Identity guard: the job was approved for a specific external account.
+  // If the business switched Page / Instagram account since, never publish
+  // to the new one without re-approval.
+  if (
+    job.target_external_account_id &&
+    account.external_account_id !== job.target_external_account_id
+  ) {
+    const held = await holdPublishJob(
+      admin,
+      job,
+      "ACCOUNT_CHANGED",
+      "The connected account changed after this post was queued. Re-approve it for the new account."
+    );
+    return { ...held, error: "account_changed" };
+  }
+
   // Stale content guard
   if (job.content_version_hash) {
     const fresh = await buildPayloadSnapshot(
@@ -654,6 +671,7 @@ export async function processClaimedPublishJob(
     system: true,
     publishJobId: job.id,
     simulated,
+    expectedExternalAccountId: job.target_external_account_id ?? null,
   });
 
   if (!("success" in result) || !result.success) {

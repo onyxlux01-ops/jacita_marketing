@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { getActiveOrganisation, getUserOrganisations } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { getSocialAdapter } from "@/lib/social/registry";
+import { getPlatformConfigForOrg } from "@/lib/social/platform-config";
 import {
   oauthRedirectChecklist,
   verifyMetaCredentials,
@@ -23,10 +24,27 @@ export default async function SocialAccountsPage({
   const { error, connected } = await searchParams;
   const orgs = await getUserOrganisations();
   const active = await getActiveOrganisation(orgs);
-  const metaStatus = await verifyMetaCredentials();
-  const orgMetaApp = active
-    ? await getOrgMetaAppInfo(active.id)
-    : { hasOverride: false, appId: null, label: null };
+  // Check the Meta app THIS business uses (its own override, else global).
+  const metaStatus = await verifyMetaCredentials(active?.id);
+  let orgMetaApp: { hasOverride: boolean; appId: string | null; label: string | null } =
+    { hasOverride: false, appId: null, label: null };
+  if (active) {
+    try {
+      orgMetaApp = await getOrgMetaAppInfo(active.id);
+    } catch {
+      // Surfaced through metaStatus (lookup failure → not configured).
+    }
+  }
+  const platformConfigured = Object.fromEntries(
+    await Promise.all(
+      PLATFORMS.map(async (platform) => [
+        platform,
+        active
+          ? (await getPlatformConfigForOrg(platform, active.id)).configured
+          : getSocialAdapter(platform).isConfigured(),
+      ])
+    )
+  ) as Record<SocialPlatform, boolean>;
   // Derive redirect URIs from the domain this page is actually served on, so
   // the values shown match every deployment (prod, preview, custom domain).
   const headerList = await headers();
@@ -52,7 +70,7 @@ export default async function SocialAccountsPage({
     account_handle: null,
     profile_image_url: null,
     last_error: null,
-    configured: getSocialAdapter(platform).isConfigured(),
+    configured: platformConfigured[platform],
     availablePages: [],
     selectedPageId: null,
   }));
@@ -96,7 +114,7 @@ export default async function SocialAccountsPage({
           available_pages?: Array<{ id: string; name: string }>;
           page_id?: string;
         };
-        const configured = getSocialAdapter(platform).isConfigured();
+        const configured = platformConfigured[platform];
         const metaBlocked =
           (platform === "instagram" || platform === "facebook") &&
           !metaStatus.ok;

@@ -1,6 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import { getSocialAdapter } from "@/lib/social/registry";
+import { getPlatformConfigForOrg } from "@/lib/social/platform-config";
 import type { SocialPlatform } from "@/lib/types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -33,10 +33,18 @@ export async function getSocialAccountHealth(
     .eq("organisation_id", organisationId);
 
   const platforms: SocialPlatform[] = ["instagram", "facebook", "tiktok"];
+  // Per-business: Facebook/Instagram use this business's Meta app.
+  const configured = new Map(
+    await Promise.all(
+      platforms.map(
+        async (p) =>
+          [p, (await getPlatformConfigForOrg(p, organisationId)).configured] as const
+      )
+    )
+  );
   return platforms.map((platform) => {
     const row = (accounts || []).find((a) => a.platform === platform);
-    const adapter = getSocialAdapter(platform);
-    if (!adapter.isConfigured()) {
+    if (!configured.get(platform)) {
       return {
         platform,
         accountName: null,

@@ -158,6 +158,7 @@ export async function enqueuePublishJobsForContent(input: {
         content_id: input.contentId,
         content_platform_id: cp.id,
         social_account_id: account.id,
+        target_external_account_id: account.external_account_id,
         platform: cp.platform,
         scheduled_at: input.scheduledAt,
         status: "pending",

@@ -2455,6 +2455,7 @@ export type Database = {
           simulated: boolean
           social_account_id: string
           status: Database["public"]["Enums"]["publish_job_status"]
+          target_external_account_id: string | null
           updated_at: string
         }
         Insert: {
@@ -2487,6 +2488,7 @@ export type Database = {
           simulated?: boolean
           social_account_id: string
           status?: Database["public"]["Enums"]["publish_job_status"]
+          target_external_account_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -2519,6 +2521,7 @@ export type Database = {
           simulated?: boolean
           social_account_id?: string
           status?: Database["public"]["Enums"]["publish_job_status"]
+          target_external_account_id?: string | null
           updated_at?: string
         }
         Relationships: [

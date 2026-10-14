@@ -22,11 +22,14 @@ export async function saveAccountSecrets(input: {
 
   if (error) throw new Error(`Failed to store token vault: ${error.message}`);
 
-  await admin
+  const { error: refError } = await admin
     .from("social_accounts")
     .update({ token_vault_ref: input.socialAccountId })
     .eq("id", input.socialAccountId)
     .eq("organisation_id", input.organisationId);
+  if (refError) {
+    throw new Error(`Failed to link token vault: ${refError.message}`);
+  }
 }
 
 export async function loadAccountSecrets(

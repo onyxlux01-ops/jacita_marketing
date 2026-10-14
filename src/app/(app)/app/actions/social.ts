@@ -3,9 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteAccountSecrets, loadAccountSecrets } from "@/lib/social/secrets";
+import {
+  deleteAccountSecrets,
+  loadAccountSecrets,
+  saveAccountSecrets,
+} from "@/lib/social/secrets";
+import { holdJobsForAccountChange } from "@/lib/social/account-switch";
+import type { TokenBundle } from "@/lib/social/types";
+import type { Json } from "@/lib/database.types";
 import {
   deleteOrgMetaApp,
+  getOrgMetaAppInfo,
   saveOrgMetaApp,
 } from "@/lib/social/meta-app-credentials";
 import { getSocialAdapter } from "@/lib/social/registry";
@@ -275,6 +283,139 @@ export async function updateAutopilotMode(input: {
   return { success: true };
 }
 
+type AccountSnapshot = {
+  id: string;
+  external_account_id: string | null;
+  account_name: string | null;
+  account_handle: string | null;
+  profile_image_url: string | null;
+  metadata: unknown;
+};
+
+/**
+ * Point a Facebook/Instagram connection at a different Page / IG account.
+ *
+ * Order matters and every write is checked:
+ *   1. audit the intended switch (old + new external ids)
+ *   2. if the external id changes, hold queued jobs (re-approval) and flag
+ *      in-flight ones — abort if that fails
+ *   3. update the social_accounts row — abort if it fails
+ *   4. only then store the new page token; if that fails, restore the row
+ */
+async function applyMetaAccountSwitch(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  organisationId: string;
+  platform: "facebook" | "instagram";
+  account: AccountSnapshot;
+  token: TokenBundle;
+  next: {
+    external_account_id: string;
+    account_name: string | null;
+    account_handle: string | null;
+    profile_image_url: string | null;
+    metadata: Record<string, unknown>;
+  };
+}): Promise<{ success: true; heldJobs: number } | { error: string }> {
+  const admin = createAdminClient();
+  const oldExternalId = input.account.external_account_id;
+  const changed = oldExternalId !== input.next.external_account_id;
+
+  const { error: auditError } = await admin.from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: input.userId,
+    action: changed ? "social.account_switched" : "social.account_refreshed",
+    entity_type: "social_accounts",
+    entity_id: input.account.id,
+    metadata: {
+      platform: input.platform,
+      old_external_account_id: oldExternalId,
+      new_external_account_id: input.next.external_account_id,
+    },
+  });
+  if (auditError) {
+    return { error: "Could not record the account change. Nothing was changed." };
+  }
+
+  let heldJobs = 0;
+  if (changed) {
+    try {
+      const held = await holdJobsForAccountChange(admin, {
+        organisationId: input.organisationId,
+        socialAccountId: input.account.id,
+        oldExternalId,
+        newExternalId: input.next.external_account_id,
+      });
+      heldJobs = held.heldJobIds.length;
+    } catch (e) {
+      return {
+        error: `Could not pause queued posts, so the account was not switched. ${
+          e instanceof Error ? e.message : ""
+        }`.trim(),
+      };
+    }
+  }
+
+  const { data: updated, error: updateError } = await input.supabase
+    .from("social_accounts")
+    .update({
+      external_account_id: input.next.external_account_id,
+      account_name: input.next.account_name,
+      account_handle: input.next.account_handle,
+      profile_image_url: input.next.profile_image_url,
+      metadata: input.next.metadata as Json,
+    })
+    .eq("id", input.account.id)
+    .eq("organisation_id", input.organisationId)
+    .select("id");
+  if (updateError || !updated?.length) {
+    return {
+      error:
+        "Could not switch the account. Queued posts for it were paused for re-approval.",
+    };
+  }
+
+  try {
+    await saveAccountSecrets({
+      socialAccountId: input.account.id,
+      organisationId: input.organisationId,
+      token: input.token,
+    });
+  } catch {
+    // Restore the previous identity so row and stored token stay paired.
+    await input.supabase
+      .from("social_accounts")
+      .update({
+        external_account_id: oldExternalId,
+        account_name: input.account.account_name,
+        account_handle: input.account.account_handle,
+        profile_image_url: input.account.profile_image_url,
+        metadata: (input.account.metadata ?? {}) as Json,
+      })
+      .eq("id", input.account.id)
+      .eq("organisation_id", input.organisationId);
+    await admin.from("audit_logs").insert({
+      organisation_id: input.organisationId,
+      user_id: input.userId,
+      action: "social.account_switch_failed",
+      entity_type: "social_accounts",
+      entity_id: input.account.id,
+      metadata: {
+        platform: input.platform,
+        old_external_account_id: oldExternalId,
+        new_external_account_id: input.next.external_account_id,
+        reason: "token_store_failed",
+      },
+    });
+    return {
+      error:
+        "Could not store the new account credentials. The previous account was kept; queued posts were paused for re-approval.",
+    };
+  }
+
+  return { success: true, heldJobs };
+}
+
 export async function selectFacebookPage(input: {
   organisationId: string;
   pageId: string;
@@ -295,7 +436,9 @@ export async function selectFacebookPage(input: {
 
   const { data: account } = await auth.supabase
     .from("social_accounts")
-    .select("id, metadata, connection_status")
+    .select(
+      "id, metadata, connection_status, external_account_id, account_name, account_handle, profile_image_url"
+    )
     .eq("organisation_id", input.organisationId)
     .eq("platform", "facebook")
     .maybeSingle();
@@ -343,33 +486,26 @@ export async function selectFacebookPage(input: {
       return { error: "Could not load that Page. Reconnect Facebook." };
     }
 
-    const { saveAccountSecrets } = await import("@/lib/social/secrets");
-    await saveAccountSecrets({
-      socialAccountId: account.id,
+    const switched = await applyMetaAccountSwitch({
+      supabase: auth.supabase,
+      userId: auth.user.id,
       organisationId: input.organisationId,
-      token: {
-        ...token,
-        pageAccessToken: full.access_token,
-      },
-    });
-
-    await auth.supabase
-      .from("social_accounts")
-      .update({
+      platform: "facebook",
+      account,
+      token: { ...token, pageAccessToken: full.access_token },
+      next: {
         external_account_id: full.id,
         account_name: full.name,
         account_handle: full.name,
         profile_image_url: full.picture?.data?.url ?? null,
-        metadata: {
-          ...metadata,
-          page_id: full.id,
-        },
-      })
-      .eq("id", account.id)
-      .eq("organisation_id", input.organisationId);
+        metadata: { ...metadata, page_id: full.id },
+      },
+    });
+    if ("error" in switched) return switched;
 
     revalidatePath("/app/social");
-    return { success: true };
+    revalidatePath("/app/automation");
+    return { success: true, heldJobs: switched.heldJobs };
   } catch {
     return {
       error: "Could not switch Facebook Page. Try reconnecting.",
@@ -399,7 +535,9 @@ export async function selectInstagramPage(input: {
 
   const { data: account } = await auth.supabase
     .from("social_accounts")
-    .select("id, metadata, connection_status")
+    .select(
+      "id, metadata, connection_status, external_account_id, account_name, account_handle, profile_image_url"
+    )
     .eq("organisation_id", input.organisationId)
     .eq("platform", "instagram")
     .maybeSingle();
@@ -468,19 +606,14 @@ export async function selectInstagramPage(input: {
       },
     });
 
-    const { saveAccountSecrets } = await import("@/lib/social/secrets");
-    await saveAccountSecrets({
-      socialAccountId: account.id,
+    const switched = await applyMetaAccountSwitch({
+      supabase: auth.supabase,
+      userId: auth.user.id,
       organisationId: input.organisationId,
-      token: {
-        ...token,
-        pageAccessToken: full.access_token,
-      },
-    });
-
-    await auth.supabase
-      .from("social_accounts")
-      .update({
+      platform: "instagram",
+      account,
+      token: { ...token, pageAccessToken: full.access_token },
+      next: {
         external_account_id: igUserId,
         account_name: igProfile.name || full.name,
         account_handle: igProfile.username
@@ -493,12 +626,13 @@ export async function selectInstagramPage(input: {
           ig_user_id: igUserId,
           username: igProfile.username || null,
         },
-      })
-      .eq("id", account.id)
-      .eq("organisation_id", input.organisationId);
+      },
+    });
+    if ("error" in switched) return switched;
 
     revalidatePath("/app/social");
-    return { success: true };
+    revalidatePath("/app/automation");
+    return { success: true, heldJobs: switched.heldJobs };
   } catch {
     return {
       error: "Could not switch Instagram account. Try reconnecting.",
@@ -542,6 +676,13 @@ export async function saveOrgMetaAppCredentials(input: {
     return { error: "Enter the Meta App Secret from your app's Basic settings." };
   }
 
+  let previousAppId: string | null = null;
+  try {
+    previousAppId = (await getOrgMetaAppInfo(input.organisationId)).appId;
+  } catch {
+    return { error: "Could not read the current Meta app settings." };
+  }
+
   try {
     await saveOrgMetaApp({
       organisationId: input.organisationId,
@@ -549,10 +690,39 @@ export async function saveOrgMetaAppCredentials(input: {
       appSecret,
       label: input.label?.trim() || null,
     });
-    revalidatePath("/app/social");
-    return { success: true };
   } catch {
     return { error: "Could not save the Meta app credentials." };
+  }
+
+  // Never log the secret — only which app id was set.
+  await writeMetaAppAudit({
+    organisationId: input.organisationId,
+    userId: auth.user.id,
+    action: "social.meta_app_saved",
+    metadata: { app_id: appId, previous_app_id: previousAppId },
+  });
+  revalidatePath("/app/social");
+  return { success: true };
+}
+
+async function writeMetaAppAudit(input: {
+  organisationId: string;
+  userId: string;
+  action: string;
+  metadata: Record<string, string | null>;
+}) {
+  const { error } = await createAdminClient().from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: input.userId,
+    action: input.action,
+    entity_type: "organisation_meta_apps",
+    entity_id: input.organisationId,
+    metadata: input.metadata,
+  });
+  if (error) {
+    console.error(
+      JSON.stringify({ scope: "audit", action: input.action, failed: error.message })
+    );
   }
 }
 
@@ -566,11 +736,20 @@ export async function removeOrgMetaAppCredentials(input: {
     return { error: "Only owners and managers can change the Meta app" };
   }
 
+  let previousAppId: string | null = null;
   try {
+    previousAppId = (await getOrgMetaAppInfo(input.organisationId)).appId;
     await deleteOrgMetaApp(input.organisationId);
-    revalidatePath("/app/social");
-    return { success: true };
   } catch {
     return { error: "Could not remove the Meta app credentials." };
   }
+
+  await writeMetaAppAudit({
+    organisationId: input.organisationId,
+    userId: auth.user.id,
+    action: "social.meta_app_removed",
+    metadata: { previous_app_id: previousAppId },
+  });
+  revalidatePath("/app/social");
+  return { success: true };
 }

@@ -19,6 +19,7 @@ import {
   contentStatusAllows,
   resolveContentPlatform,
 } from "@/lib/social/publish-authz";
+import { getPlatformConfigForOrg } from "@/lib/social/platform-config";
 import type { SocialPlatform } from "@/lib/types";
 
 function reportPersistError(
@@ -92,6 +93,8 @@ export async function publishContent(input: {
   system?: boolean;
   publishJobId?: string | null;
   simulated?: boolean;
+  /** External account the job was approved for; refuse if it changed. */
+  expectedExternalAccountId?: string | null;
 }): Promise<PublishContentResult> {
   const admin = createAdminClient();
   const simulated =
@@ -173,6 +176,19 @@ export async function publishContent(input: {
     };
   }
 
+  if (
+    input.expectedExternalAccountId &&
+    account.external_account_id !== input.expectedExternalAccountId
+  ) {
+    return {
+      error:
+        "The connected account changed after this post was approved. Re-approve it first.",
+      errorType: "BLOCKED_ACCOUNT",
+      retryable: false,
+      errorCode: "ACCOUNT_CHANGED",
+    };
+  }
+
   // Derive the platform row from (content, platform); a mismatching supplied
   // id is rejected BEFORE the duplicate check so foreign rows never leak.
   const cp = await resolveContentPlatform(admin, {
@@ -196,12 +212,18 @@ export async function publishContent(input: {
   }
 
   let adapter = getSocialAdapter(account.platform as SocialPlatform);
-  if (!adapter.isConfigured()) {
+  // Per-business check: Facebook/Instagram use this business's Meta app.
+  const platformConfig = await getPlatformConfigForOrg(
+    account.platform as SocialPlatform,
+    contentRow.organisation_id
+  );
+  if (!platformConfig.configured) {
     return {
       error:
         account.platform === "tiktok"
           ? "TikTok publishing requires additional developer configuration."
-          : `${account.platform} publishing is not configured. Add platform credentials.`,
+          : platformConfig.reason ||
+            `${account.platform} publishing is not configured. Add platform credentials.`,
       errorType: "PLATFORM_ERROR",
       retryable: false,
       errorCode: "not_configured",
