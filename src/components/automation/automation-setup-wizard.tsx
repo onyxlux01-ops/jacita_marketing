@@ -83,7 +83,11 @@ export function AutomationSetupWizard({
         toast.error(started.error);
         return;
       }
-      toast.success("AI marketing automation is active");
+      if ("aiLimit" in started && started.aiLimit) {
+        toast.warning(`Automation is on, but the first run was skipped: ${started.aiLimit.message}`);
+      } else {
+        toast.success("AI marketing automation is active");
+      }
       router.push("/app/automation");
       router.refresh();
     });

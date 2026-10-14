@@ -1337,7 +1337,10 @@ export function AutomationControlCentre({
                   const res = await resumeAutomation(orgId);
                   setResumeOpen(false);
                   if ("error" in res && res.error) toast.error(res.error);
-                  else {
+                  else if ("aiLimit" in res && res.aiLimit) {
+                    toast.warning(`Automation resumed, but this run was skipped: ${res.aiLimit.message}`);
+                    router.refresh();
+                  } else {
                     toast.success("Automation resumed");
                     router.refresh();
                   }

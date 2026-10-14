@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SettingsForm } from "./settings-form";
 import { PublishingModePanel } from "./publishing-mode-panel";
+import { AiUsagePanel, type AiUsageSummary } from "./ai-usage-panel";
 import { TeamPanel, DangerZone } from "./team-danger";
 import { SettingsNav } from "./settings-nav";
 import { getActiveOrganisation, getSessionUser, getUserOrganisations } from "@/lib/org";
@@ -139,6 +140,7 @@ export default async function SettingsPage({
   }> = [];
   let myRole: OrgRole | null = null;
   let activeGoals: string[] = [];
+  let aiUsage: AiUsageSummary | null = null;
 
   if (active && hasSupabaseEnv()) {
     try {
@@ -302,6 +304,21 @@ export default async function SettingsPage({
       }));
       activeGoals = (goalData ?? []).map((g) => g.goal_key);
       myRole = (myMembership?.role as OrgRole) || null;
+      if (section === "ai") {
+        const { data: spend } = await supabase.rpc("ai_spend_summary", {
+          p_organisation_id: active.id,
+        });
+        const t = spend as Record<string, unknown> | null;
+        if (t) {
+          aiUsage = {
+            timezone: String(t.timezone ?? "Europe/London"),
+            monthSpendPence: Number(t.month_spend_pence ?? 0),
+            monthlyBudgetPence: Number(t.monthly_budget_pence ?? 0),
+            imagesToday: Number(t.images_today ?? 0),
+            dailyImageCap: Number(t.daily_image_cap ?? 0),
+          };
+        }
+      }
     } catch {
       // keep defaults
     }
@@ -402,6 +419,19 @@ export default async function SettingsPage({
             <PublishingModePanel
               organisationId={org.id}
               mode={org.autopilot_mode}
+            />
+          ) : null}
+
+          {section === "ai" ? (
+            <AiUsagePanel
+              key={org.id}
+              organisationId={org.id}
+              summary={aiUsage}
+              canEdit={
+                myRole === "owner" ||
+                myRole === "manager" ||
+                Boolean(user?.is_platform_admin)
+              }
             />
           ) : null}
 

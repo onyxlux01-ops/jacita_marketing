@@ -10,6 +10,7 @@ const SECTIONS = [
   { id: "social", label: "Social Accounts" },
   { id: "team", label: "Team" },
   { id: "publishing", label: "Publishing" },
+  { id: "ai", label: "AI usage" },
   { id: "danger", label: "Danger Zone" },
 ] as const;
 

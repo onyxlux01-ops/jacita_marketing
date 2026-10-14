@@ -185,6 +185,7 @@ Follow these steps in order.
    12. `20261014180000_invites_accept.sql`
    13. `20261014190000_ads_pause_and_reconcile.sql`
    14. `20261014200000_ads_sync_after_reconcile.sql`
+   15. `20261014210000_ai_spend_limits.sql`
 
    After `20261014180000`, scripts that insert members with the service role
    (e.g. `scripts/seed-business-profiles-remote.mjs`) no longer work; people
@@ -254,12 +255,26 @@ Follow these steps in order.
    where lower(a.email) = lower('operator@example.com');
    ```
 
-9. **Re-enable cron.** Enable the `publish-cron` workflow again
+9. **AI spending limits.** Every paid AI call (all `/api/ai/*` routes, the
+   automation engine, the Automation page health check) now reserves an
+   estimated cost against the business budget before calling the provider.
+   - Each business gets **£50 per calendar month** (business time zone) and
+     **20 AI images per day** by default. Owners and managers change them in
+     Settings → AI usage; staff cannot.
+   - **Confirm the price table** in `src/lib/ai/spend/prices.ts` against the
+     provider's current pricing page before go-live. The values are
+     estimates, and the image-model prices are guesses (see the file). A
+     model that is not in the table is refused, so add a price before
+     switching models.
+   - Amounts shown in the app are estimates, not the provider's bill. Keep a
+     provider-side budget alert as well.
+
+10. **Re-enable cron.** Enable the `publish-cron` workflow again
    (`CRON_SECRET` repo secret and `APP_URL` variable set). Automation runs
    each business at most hourly, up to 5 per call, and catches up after
    missed triggers.
 
-10. **Manual browser checklist (production):**
+11. **Manual browser checklist (production):**
     - [ ] Sign in.
     - [ ] Forgot password → email → reset → sign in with the new password.
     - [ ] Invite a new user (email arrives, they accept, they set a password).
@@ -276,6 +291,9 @@ Follow these steps in order.
     - [ ] Switching the Facebook Page / Instagram account shows the hold
       message.
     - [ ] The Spend limits form saves.
+    - [ ] Settings → AI usage shows this month's estimated spend and today's
+      image count; the limits save as owner/manager and are read-only for
+      staff.
     - [ ] One real publish to a dedicated test account.
 
 ## Remote Supabase
