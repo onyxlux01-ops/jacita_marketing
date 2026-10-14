@@ -106,7 +106,8 @@ export type HoldReason =
   | "MISSING_ACTOR"
   | "ACTOR_NOT_AUTHORISED"
   | "CONTENT_NOT_APPROVED"
-  | "ACCOUNT_CHANGED";
+  | "ACCOUNT_CHANGED"
+  | "MISSING_TARGET";
 
 /**
  * Park a claimed job in `held` until someone authorised re-approves /
@@ -114,7 +115,12 @@ export type HoldReason =
  */
 export async function holdPublishJob(
   admin: Admin,
-  job: { id: string; organisation_id: string; platform: string },
+  job: {
+    id: string;
+    organisation_id: string;
+    platform: string;
+    content_platform_id?: string | null;
+  },
   reason: HoldReason,
   message: string
 ) {
@@ -138,6 +144,17 @@ export async function holdPublishJob(
     console.error(
       JSON.stringify({ scope: "publishing", job_id: job.id, hold_failed: error.message })
     );
+  } else if (job.content_platform_id) {
+    // Calendar / content page must not keep showing it as scheduled.
+    const { error: cpError } = await admin
+      .from("content_platforms")
+      .update({ publish_status: "held", error_message: message })
+      .eq("id", job.content_platform_id);
+    if (cpError) {
+      console.error(
+        JSON.stringify({ scope: "publishing", job_id: job.id, cp_hold_failed: cpError.message })
+      );
+    }
   }
 
   await logAutomationActivity(admin, {
@@ -604,11 +621,18 @@ export async function processClaimedPublishJob(
 
   // Identity guard: the job was approved for a specific external account.
   // If the business switched Page / Instagram account since, never publish
-  // to the new one without re-approval.
-  if (
-    job.target_external_account_id &&
-    account.external_account_id !== job.target_external_account_id
-  ) {
+  // to the new one without re-approval. A job with NO recorded target is
+  // held too (fail closed) — it cannot prove which account it was approved for.
+  if (!job.target_external_account_id) {
+    const held = await holdPublishJob(
+      admin,
+      job,
+      "MISSING_TARGET",
+      "This post has no recorded target account. Re-approve it to publish."
+    );
+    return { ...held, error: "missing_target" };
+  }
+  if (account.external_account_id !== job.target_external_account_id) {
     const held = await holdPublishJob(
       admin,
       job,

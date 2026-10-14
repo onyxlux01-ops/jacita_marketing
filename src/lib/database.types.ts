@@ -2764,6 +2764,7 @@ export type Database = {
         | "published"
         | "failed"
         | "cancelled"
+        | "held"
       publish_job_status:
         | "pending"
         | "processing"
@@ -2949,6 +2950,7 @@ export const Constants = {
         "published",
         "failed",
         "cancelled",
+        "held",
       ],
       publish_job_status: [
         "pending",

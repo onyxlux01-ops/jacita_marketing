@@ -197,8 +197,27 @@ export function SocialAccountsPanel({
                                   organisationId,
                                   pageId: page.id,
                                 });
-                          if (res.error) toast.error(res.error);
-                          else toast.success(`Using ${page.name}`);
+                          if ("error" in res && res.error) {
+                            toast.error(res.error);
+                            return;
+                          }
+                          const held =
+                            "heldJobs" in res ? res.heldJobs ?? 0 : 0;
+                          const other =
+                            "otherPlatformJobs" in res
+                              ? res.otherPlatformJobs ?? 0
+                              : 0;
+                          if (held > 0) {
+                            toast.warning(
+                              `Using ${page.name}. ${held} queued post${held === 1 ? "" : "s"} went back to review` +
+                                (other > 0
+                                  ? ` — this pauses every platform of those posts (${other} other platform job${other === 1 ? "" : "s"} held)`
+                                  : "") +
+                                ". Re-approve to publish to the new account."
+                            );
+                          } else {
+                            toast.success(`Using ${page.name}`);
+                          }
                         });
                       }}
                     >

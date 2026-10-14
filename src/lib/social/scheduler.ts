@@ -220,7 +220,7 @@ export async function publishContentViaJobPipeline(input: {
 
   const { data: account } = await admin
     .from("social_accounts")
-    .select("id, organisation_id, platform, connection_status")
+    .select("id, organisation_id, platform, connection_status, external_account_id")
     .eq("id", input.socialAccountId)
     .maybeSingle();
   if (!account) return { error: "Social account not found" };
@@ -318,6 +318,8 @@ export async function publishContentViaJobPipeline(input: {
       lock_token: null,
       created_by: input.userId,
       content_platform_id: contentPlatformId,
+      // Explicit manual publish targets the account connected right now.
+      target_external_account_id: account.external_account_id,
     })
     .eq("id", jobId)
     .eq("organisation_id", content.organisation_id)
@@ -377,6 +379,17 @@ export async function retryPublishJob(input: {
     return { error: "Approve this content again before retrying" };
   }
 
+  // The authorised retrier approves the account connected NOW: record it as
+  // the job's target (the worker holds jobs without one).
+  const { data: account } = await admin
+    .from("social_accounts")
+    .select("external_account_id, organisation_id")
+    .eq("id", job.social_account_id)
+    .maybeSingle();
+  if (!account || account.organisation_id !== input.organisationId) {
+    return { error: "Social account not found for this business" };
+  }
+
   // Reset for manual retry; the authorised retrier becomes the actor.
   const { data: reset, error: resetError } = await admin
     .from("social_publish_jobs")
@@ -390,6 +403,7 @@ export async function retryPublishJob(input: {
       locked_at: null,
       lock_token: null,
       created_by: input.userId,
+      target_external_account_id: account.external_account_id,
     })
     .eq("id", job.id)
     .eq("organisation_id", input.organisationId)

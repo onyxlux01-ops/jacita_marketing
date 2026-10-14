@@ -14,7 +14,9 @@ export type PlatformPublishStatus =
   | "publishing"
   | "published"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  /** Queued post paused for re-approval (role lost, account switched, …). */
+  | "held";
 
 export type SocialPlatform = "instagram" | "facebook" | "tiktok";
 

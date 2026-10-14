@@ -58,9 +58,17 @@ export function PlatformPublishPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <PlatformPill platform={row.platform} />
                 <span className="text-sm font-medium capitalize">
-                  {row.publish_status}
+                  {row.publish_status === "held"
+                    ? "Held · needs re-approval"
+                    : row.publish_status}
                 </span>
               </div>
+              {row.publish_status === "held" ? (
+                <p className="text-xs text-amber-800">
+                  Paused because the post went back to review. Re-approving
+                  re-queues every platform of this post.
+                </p>
+              ) : null}
               <p className="text-sm text-muted-foreground">
                 {row.account_handle || row.account_name || "No account linked"}
                 {!connected && row.social_account_id

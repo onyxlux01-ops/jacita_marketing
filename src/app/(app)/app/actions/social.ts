@@ -328,7 +328,10 @@ async function applyMetaAccountSwitch(input: {
     profile_image_url: string | null;
     metadata: Record<string, unknown>;
   };
-}): Promise<{ success: true; heldJobs: number } | { error: string }> {
+}): Promise<
+  | { success: true; heldJobs: number; otherPlatformJobs: number }
+  | { error: string }
+> {
   const admin = createAdminClient();
   const oldExternalId = input.account.external_account_id;
   const changed = oldExternalId !== input.next.external_account_id;
@@ -350,6 +353,7 @@ async function applyMetaAccountSwitch(input: {
   }
 
   let heldJobs = 0;
+  let otherPlatformJobs = 0;
   if (changed) {
     try {
       const held = await holdJobsForAccountChange(admin, {
@@ -359,6 +363,7 @@ async function applyMetaAccountSwitch(input: {
         newExternalId: input.next.external_account_id,
       });
       heldJobs = held.heldJobIds.length;
+      otherPlatformJobs = held.otherPlatformJobIds.length;
     } catch (e) {
       return {
         error: `Could not pause queued posts, so the account was not switched. ${
@@ -395,7 +400,7 @@ async function applyMetaAccountSwitch(input: {
     });
   } catch {
     // Restore the previous identity so row and stored token stay paired.
-    await input.supabase
+    const { data: restored, error: restoreError } = await input.supabase
       .from("social_accounts")
       .update({
         external_account_id: oldExternalId,
@@ -405,7 +410,26 @@ async function applyMetaAccountSwitch(input: {
         metadata: (input.account.metadata ?? {}) as Json,
       })
       .eq("id", input.account.id)
-      .eq("organisation_id", input.organisationId);
+      .eq("organisation_id", input.organisationId)
+      .select("id");
+    const restoreFailed = Boolean(restoreError) || !restored?.length;
+    if (restoreFailed) {
+      // Row now names the new account but the vault holds the old token:
+      // make the connection unusable until it is reconnected.
+      const { error: markError } = await admin
+        .from("social_accounts")
+        .update({
+          connection_status: "error",
+          last_error: "Account switch failed part-way. Reconnect this account.",
+        })
+        .eq("id", input.account.id)
+        .eq("organisation_id", input.organisationId);
+      if (markError) {
+        console.error(
+          JSON.stringify({ scope: "social", account_id: input.account.id, mark_error_failed: markError.message })
+        );
+      }
+    }
     await admin.from("audit_logs").insert({
       organisation_id: input.organisationId,
       user_id: input.userId,
@@ -417,15 +441,17 @@ async function applyMetaAccountSwitch(input: {
         old_external_account_id: oldExternalId,
         new_external_account_id: input.next.external_account_id,
         reason: "token_store_failed",
+        restore_failed: restoreFailed,
       },
     });
     return {
-      error:
-        "Could not store the new account credentials. The previous account was kept; queued posts were paused for re-approval.",
+      error: restoreFailed
+        ? "Could not store the new account credentials, and the previous account could not be restored. Reconnect this account. Queued posts were paused for re-approval."
+        : "Could not store the new account credentials. The previous account was kept; queued posts were paused for re-approval.",
     };
   }
 
-  return { success: true, heldJobs };
+  return { success: true, heldJobs, otherPlatformJobs };
 }
 
 export async function selectFacebookPage(input: {
@@ -517,7 +543,11 @@ export async function selectFacebookPage(input: {
 
     revalidatePath("/app/social");
     revalidatePath("/app/automation");
-    return { success: true, heldJobs: switched.heldJobs };
+    return {
+      success: true,
+      heldJobs: switched.heldJobs,
+      otherPlatformJobs: switched.otherPlatformJobs,
+    };
   } catch {
     return {
       error: "Could not switch Facebook Page. Try reconnecting.",
@@ -644,7 +674,11 @@ export async function selectInstagramPage(input: {
 
     revalidatePath("/app/social");
     revalidatePath("/app/automation");
-    return { success: true, heldJobs: switched.heldJobs };
+    return {
+      success: true,
+      heldJobs: switched.heldJobs,
+      otherPlatformJobs: switched.otherPlatformJobs,
+    };
   } catch {
     return {
       error: "Could not switch Instagram account. Try reconnecting.",

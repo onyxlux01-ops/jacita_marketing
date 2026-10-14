@@ -12,7 +12,9 @@ export const ACCOUNT_CHANGED = "ACCOUNT_CHANGED";
  *   re-approval and are never run by the worker.
  * - processing jobs are flagged (hold_reason) but not interrupted; if they
  *   end up retrying, the worker's target check holds them.
- * - the affected content goes back to `review`.
+ * - the affected content goes back to `review`. NOTE: review applies to the
+ *   whole post, so its other platforms' queued jobs are held too
+ *   (CONTENT_NOT_APPROVED) until the post is re-approved.
  *
  * Throws on any failed write so callers abort before touching the account.
  */
@@ -43,8 +45,21 @@ export async function holdJobsForAccountChange(
     .eq("organisation_id", input.organisationId)
     .eq("social_account_id", input.socialAccountId)
     .in("status", ["pending", "ready", "retrying"])
-    .select("id, content_id");
+    .select("id, content_id, content_platform_id");
   if (holdError) throw new Error(`Could not hold queued posts: ${holdError.message}`);
+
+  const platformRowIds = (held || [])
+    .map((j) => j.content_platform_id)
+    .filter((id): id is string => Boolean(id));
+  if (platformRowIds.length) {
+    const { error: cpError } = await admin
+      .from("content_platforms")
+      .update({ publish_status: "held", error_message: message })
+      .in("id", platformRowIds);
+    if (cpError) {
+      throw new Error(`Could not mark platform rows held: ${cpError.message}`);
+    }
+  }
 
   const { data: flagged, error: flagError } = await admin
     .from("social_publish_jobs")
@@ -58,6 +73,7 @@ export async function holdJobsForAccountChange(
   }
 
   const contentIds = [...new Set((held || []).map((j) => j.content_id))];
+  let siblingHeld: string[] = [];
   if (contentIds.length) {
     const { error: contentError } = await admin
       .from("content")
@@ -68,10 +84,47 @@ export async function holdJobsForAccountChange(
     if (contentError) {
       throw new Error(`Could not return posts to review: ${contentError.message}`);
     }
+
+    // Review applies to the whole post: hold its other platforms' queued
+    // jobs now (rather than when the worker reaches them) so the UI shows it.
+    const { data: siblings, error: siblingError } = await admin
+      .from("social_publish_jobs")
+      .update({
+        status: "held",
+        hold_reason: "CONTENT_NOT_APPROVED",
+        held_at: now,
+        error_type: "PERMISSION_ERROR",
+        error_code: "CONTENT_NOT_APPROVED",
+        error_message:
+          "Another platform's account changed, so this post went back to review. Re-approve it to publish.",
+        locked_at: null,
+        lock_token: null,
+      })
+      .eq("organisation_id", input.organisationId)
+      .in("content_id", contentIds)
+      .in("status", ["pending", "ready", "retrying"])
+      .select("id, content_platform_id");
+    if (siblingError) {
+      throw new Error(`Could not hold other platforms: ${siblingError.message}`);
+    }
+    const siblingRows = (siblings || [])
+      .map((j) => j.content_platform_id)
+      .filter((id): id is string => Boolean(id));
+    if (siblingRows.length) {
+      const { error: sibCpError } = await admin
+        .from("content_platforms")
+        .update({ publish_status: "held" })
+        .in("id", siblingRows);
+      if (sibCpError) {
+        throw new Error(`Could not mark platform rows held: ${sibCpError.message}`);
+      }
+    }
+    siblingHeld = (siblings || []).map((j) => j.id);
   }
 
   return {
     heldJobIds: (held || []).map((j) => j.id),
+    otherPlatformJobIds: siblingHeld,
     flaggedProcessingJobIds: (flagged || []).map((j) => j.id),
     contentIds,
   };

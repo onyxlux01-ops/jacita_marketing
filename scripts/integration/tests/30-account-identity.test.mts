@@ -345,3 +345,155 @@ test("identity: Meta app save/remove is owner/manager only and audited", async (
   );
   assert.ok(!JSON.stringify(audit).includes("itest-org-app-secret"), "secret must not be logged");
 });
+
+async function queueApproved(
+  orgId: string,
+  managerId: string,
+  platforms: Array<"facebook" | "instagram">
+) {
+  const c = await createContent(orgId, managerId, "approved", platforms);
+  const { scheduleContentPublishing } = await social();
+  return { ...c, scheduleContentPublishing };
+}
+
+test("identity: switching the Instagram account holds every platform of affected posts", async () => {
+  const { orgId, manager } = await teamOrg("igswitch");
+  const pages = [
+    { id: "fbpage-1", name: "Page One", ig_user_id: "ig-1" },
+    { id: "fbpage-2", name: "Page Two", ig_user_id: "ig-2" },
+  ];
+  await connectAccount(orgId, "facebook", "fbpage-1");
+  const ig = await connectAccount(orgId, "instagram", "ig-1", {
+    available_pages: pages,
+    page_id: "fbpage-1",
+    ig_user_id: "ig-1",
+  });
+  const q = await queueApproved(orgId, manager.id, ["facebook", "instagram"]);
+  actAs(manager);
+  const sched = await q.scheduleContentPublishing({
+    contentId: q.contentId,
+    organisationId: orgId,
+    scheduledAt: new Date(Date.now() + 3600_000).toISOString(),
+  });
+  assert.ok("success" in sched && sched.success, JSON.stringify(sched));
+
+  itest.metaFetch = (path) => {
+    if (path === "/me/accounts") {
+      return {
+        data: pages.map((p) => ({
+          id: p.id,
+          name: p.name,
+          access_token: `token-${p.id}`,
+          instagram_business_account: { id: p.ig_user_id },
+        })),
+      };
+    }
+    if (path === "/ig-2") return { id: "ig-2", username: "second", name: "Second" };
+    throw new Error(`unexpected Graph path ${path}`);
+  };
+  const { selectInstagramPage } = await social();
+  const res = await selectInstagramPage({ organisationId: orgId, pageId: "fbpage-2" });
+  actAs(null);
+  itest.metaFetch = null;
+  assert.ok("success" in res && res.success, JSON.stringify(res));
+  assert.equal((res as { heldJobs: number }).heldJobs, 1);
+  assert.equal((res as { otherPlatformJobs: number }).otherPlatformJobs, 1);
+
+  const jobs = await jobsFor(q.contentId);
+  assert.deepEqual(
+    jobs.map((j) => [j.platform, j.status, j.hold_reason]).sort(),
+    [
+      ["facebook", "held", "CONTENT_NOT_APPROVED"],
+      ["instagram", "held", "ACCOUNT_CHANGED"],
+    ]
+  );
+  const { data: rows } = await admin
+    .from("content_platforms")
+    .select("platform, publish_status")
+    .eq("content_id", q.contentId);
+  assert.ok(rows?.every((r) => r.publish_status === "held"), JSON.stringify(rows));
+  const { data: acct } = await admin
+    .from("social_accounts")
+    .select("external_account_id, account_handle")
+    .eq("id", ig)
+    .single();
+  assert.deepEqual(acct, { external_account_id: "ig-2", account_handle: "@second" });
+});
+
+test("identity: token-store failure restores the previous account", async () => {
+  const { orgId, manager } = await teamOrg("tokenfail");
+  const pages = [
+    { id: "page-X", name: "Page X" },
+    { id: "page-Y", name: "Page Y" },
+  ];
+  const fb = await connectAccount(orgId, "facebook", "page-X", {
+    available_pages: pages,
+    page_id: "page-X",
+  });
+  const realKey = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY;
+  itest.metaFetch = (path) => {
+    if (path === "/me/accounts") {
+      // The old token was already decrypted; break encryption so storing the
+      // NEW token fails.
+      process.env.SOCIAL_TOKEN_ENCRYPTION_KEY = "too-short";
+      return { data: pages.map((p) => ({ ...p, access_token: `token-${p.id}` })) };
+    }
+    throw new Error(`unexpected Graph path ${path}`);
+  };
+  const { selectFacebookPage } = await social();
+  actAs(manager);
+  let res;
+  try {
+    res = await selectFacebookPage({ organisationId: orgId, pageId: "page-Y" });
+  } finally {
+    process.env.SOCIAL_TOKEN_ENCRYPTION_KEY = realKey;
+    actAs(null);
+    itest.metaFetch = null;
+  }
+  assert.ok("error" in res! && res!.error, JSON.stringify(res));
+  assert.match(String((res as { error: string }).error), /previous account was kept/);
+  const { data: acct } = await admin
+    .from("social_accounts")
+    .select("external_account_id, connection_status")
+    .eq("id", fb)
+    .single();
+  assert.deepEqual(acct, { external_account_id: "page-X", connection_status: "connected" });
+  const { loadAccountSecrets } = await import("../../../src/lib/social/secrets");
+  const token = await loadAccountSecrets(fb, orgId);
+  assert.equal(token?.pageAccessToken, "page-token", "old token still in the vault");
+  const { data: audit } = await admin
+    .from("audit_logs")
+    .select("action")
+    .eq("organisation_id", orgId)
+    .in("action", ["social.account_switched", "social.account_switch_failed"]);
+  assert.deepEqual(audit?.map((a) => a.action).sort(), [
+    "social.account_switch_failed",
+    "social.account_switched",
+  ]);
+});
+
+test("identity: a job with no recorded target is held, never published", async () => {
+  const { orgId, manager } = await teamOrg("notarget");
+  await admin
+    .from("automation_settings")
+    .upsert({ organisation_id: orgId, mode: "approval", enabled: true });
+  const fb = await connectAccount(orgId, "facebook", "page-T");
+  const { contentId, platformIds } = await createContent(orgId, manager.id, "scheduled");
+  await admin.from("social_publish_jobs").insert({
+    organisation_id: orgId,
+    content_id: contentId,
+    content_platform_id: platformIds.facebook,
+    social_account_id: fb,
+    platform: "facebook",
+    status: "pending",
+    scheduled_at: new Date(Date.now() - 60_000).toISOString(),
+    created_by: manager.id,
+    target_external_account_id: null,
+  });
+  const { processDuePublishJobs } = await scheduler();
+  await processDuePublishJobs(50);
+  const [job] = await jobsFor(contentId);
+  assert.equal(job.status, "held");
+  assert.equal(job.hold_reason, "MISSING_TARGET");
+  assert.equal(itest.publishCalls.filter((c) => c.contentId === contentId).length, 0);
+});
