@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -7,10 +7,30 @@
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -2094,6 +2114,50 @@ export type Database = {
           },
         ]
       }
+      organisation_meta_apps: {
+        Row: {
+          app_id: string
+          auth_tag: string
+          ciphertext: string
+          created_at: string
+          iv: string
+          key_version: number
+          label: string | null
+          organisation_id: string
+          updated_at: string
+        }
+        Insert: {
+          app_id: string
+          auth_tag: string
+          ciphertext: string
+          created_at?: string
+          iv: string
+          key_version?: number
+          label?: string | null
+          organisation_id: string
+          updated_at?: string
+        }
+        Update: {
+          app_id?: string
+          auth_tag?: string
+          ciphertext?: string
+          created_at?: string
+          iv?: string
+          key_version?: number
+          label?: string | null
+          organisation_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organisation_meta_apps_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organisations: {
         Row: {
           autopilot_mode: Database["public"]["Enums"]["autopilot_mode"]
@@ -2699,6 +2763,53 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_publish_job: {
+        Args: {
+          p_allowed_states: Database["public"]["Enums"]["publish_job_status"][]
+          p_job_id: string
+          p_lock_token: string
+        }
+        Returns: {
+          attempt_count: number
+          content_id: string
+          content_platform_id: string | null
+          content_version_hash: string | null
+          created_at: string
+          created_by: string | null
+          error_code: string | null
+          error_message: string | null
+          error_type: string | null
+          external_post_id: string | null
+          external_url: string | null
+          held_at: string | null
+          hold_reason: string | null
+          id: string
+          idempotency_key: string | null
+          last_attempt_at: string | null
+          lock_token: string | null
+          locked_at: string | null
+          max_attempts: number
+          missed_policy: string | null
+          next_retry_at: string | null
+          organisation_id: string
+          payload_snapshot: Json
+          platform: Database["public"]["Enums"]["social_platform"]
+          published_at: string | null
+          request_sent_at: string | null
+          scheduled_at: string
+          simulated: boolean
+          social_account_id: string
+          status: Database["public"]["Enums"]["publish_job_status"]
+          target_external_account_id: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "social_publish_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_organisation: {
         Args: {
           p_booking_url?: string
@@ -2714,31 +2825,20 @@ export type Database = {
         }
         Returns: string
       }
-      claim_publish_job: {
-        Args: {
-          p_job_id: string
-          p_lock_token: string
-          p_allowed_states: Database["public"]["Enums"]["publish_job_status"][]
-        }
-        Returns: Database["public"]["Tables"]["social_publish_jobs"]["Row"][]
-      }
       schedule_content: {
         Args: {
-          p_content_id: string
-          p_scheduled_at: string
           p_actor_user_id: string
-          p_version_hash: string
+          p_allow_immediate?: boolean
+          p_content_id: string
           p_payload_snapshot?: Json
           p_platforms?: Database["public"]["Enums"]["social_platform"][]
-          p_allow_immediate?: boolean
+          p_scheduled_at: string
+          p_version_hash: string
         }
         Returns: Json
       }
       transfer_ownership: {
-        Args: {
-          p_organisation_id: string
-          p_new_owner_user_id: string
-        }
+        Args: { p_new_owner_user_id: string; p_organisation_id: string }
         Returns: undefined
       }
     }
@@ -2815,12 +2915,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2844,11 +2944,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2869,11 +2969,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2894,11 +2994,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2911,11 +3011,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2925,6 +3025,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       ai_generation_status: ["success", "fallback", "failed"],
@@ -2993,6 +3096,12 @@ export const Constants = {
   },
 } as const
 
+
+// ---------------------------------------------------------------------------
+// App aliases (not generated). Regenerate the schema above with
+//   npx supabase gen types typescript --local
+// and keep these lines at the end.
+// ---------------------------------------------------------------------------
 export type Organisation = Tables<"organisations">
 export type OrganisationMember = Tables<"organisation_members">
 export type OrgRole = Enums<"org_role">
