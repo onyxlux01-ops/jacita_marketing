@@ -184,6 +184,7 @@ Follow these steps in order.
    11. `20261014170000_ads_execution_limits.sql`
    12. `20261014180000_invites_accept.sql`
    13. `20261014190000_ads_pause_and_reconcile.sql`
+   14. `20261014200000_ads_sync_after_reconcile.sql`
 
    After `20261014180000`, scripts that insert members with the service role
    (e.g. `scripts/seed-business-profiles-remote.mjs`) no longer work; people
@@ -191,7 +192,10 @@ Follow these steps in order.
 
 4. **Set `NEXT_PUBLIC_APP_URL`** to the production URL in Vercel and deploy
    straight away. Invite links are built from it (never from request
-   headers), and production refuses to start building links without it.
+   headers). Production falls back to `APP_URL`, and refuses to build links
+   if neither is set. `NEXT_PUBLIC_*` values are fixed **at build time**: set
+   the variable *before* the build, and redeploy (a new build, not just a
+   restart) whenever it changes.
 
 5. **Re-run the target backfill.** Jobs queued between the migration and the
    deploy may have no target. Re-run the UPDATE from
@@ -226,7 +230,29 @@ Follow these steps in order.
 
 8. **Platform admin.** Make sure the operator's account has
    `users.is_platform_admin = true` (it is the recovery path for ownership
-   and invites).
+   and invites). This can only be set from the Supabase **SQL editor**
+   (role `postgres`): the `users_protect_platform_admin` trigger blocks it
+   from the app, and it also refuses a plain UPDATE in the editor (there is
+   no signed-in admin there). Lift the trigger for this one statement, in one
+   transaction, and replace the email:
+
+   ```sql
+   begin;
+   alter table public.users disable trigger users_protect_platform_admin;
+   update public.users
+   set is_platform_admin = true
+   where id = (
+     select id from auth.users
+     where lower(email) = lower('operator@example.com')
+   );
+   alter table public.users enable trigger users_protect_platform_admin;
+   commit;
+
+   -- Check: exactly one row, true.
+   select u.id, a.email, u.is_platform_admin
+   from public.users u join auth.users a on a.id = u.id
+   where lower(a.email) = lower('operator@example.com');
+   ```
 
 9. **Re-enable cron.** Enable the `publish-cron` workflow again
    (`CRON_SECRET` repo secret and `APP_URL` variable set). Automation runs

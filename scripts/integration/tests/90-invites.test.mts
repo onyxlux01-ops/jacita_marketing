@@ -261,14 +261,15 @@ test("access: password recovery sends a reset email", async () => {
   assert.match(subjects[0], /reset/i);
 });
 
-test("config: production refuses to build links without NEXT_PUBLIC_APP_URL", async () => {
+test("config: production uses NEXT_PUBLIC_APP_URL, then APP_URL, else refuses", async () => {
   const { getAppBaseUrl } = await import("../../../src/lib/social/oauth-state");
   const env = process.env as Record<string, string | undefined>;
-  const saved = { node: env.NODE_ENV, url: env.NEXT_PUBLIC_APP_URL };
+  const saved = { node: env.NODE_ENV, url: env.NEXT_PUBLIC_APP_URL, app: env.APP_URL };
   try {
     env.NODE_ENV = "production";
     delete env.NEXT_PUBLIC_APP_URL;
-    assert.throws(() => getAppBaseUrl(), /NEXT_PUBLIC_APP_URL/);
+    delete env.APP_URL;
+    assert.throws(() => getAppBaseUrl(), /NEXT_PUBLIC_APP_URL nor APP_URL/);
 
     // An invite is refused up front, before anything is recorded.
     const { orgId, owner } = await teamOrg("inv-nourl");
@@ -280,12 +281,18 @@ test("config: production refuses to build links without NEXT_PUBLIC_APP_URL", as
       .eq("organisation_id", orgId);
     assert.equal(count, 0);
 
+    // APP_URL is accepted when NEXT_PUBLIC_APP_URL is missing ...
+    env.APP_URL = "https://server-only.example.com/";
+    assert.equal(getAppBaseUrl(), "https://server-only.example.com");
+    // ... and NEXT_PUBLIC_APP_URL wins when both are set.
     env.NEXT_PUBLIC_APP_URL = "https://app.example.com/";
     assert.equal(getAppBaseUrl(), "https://app.example.com");
   } finally {
     env.NODE_ENV = saved.node;
     if (saved.url === undefined) delete env.NEXT_PUBLIC_APP_URL;
     else env.NEXT_PUBLIC_APP_URL = saved.url;
+    if (saved.app === undefined) delete env.APP_URL;
+    else env.APP_URL = saved.app;
   }
   assert.equal(getAppBaseUrl(), "http://localhost:3000");
 });

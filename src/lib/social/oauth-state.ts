@@ -83,13 +83,13 @@ export function oauthStateMetaAppId(state: { metadata: unknown }) {
  * headers, links to a spoofed host), so a missing value is an error.
  */
 export function getAppBaseUrl() {
-  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
   if (!configured && process.env.NODE_ENV === "production") {
     throw new Error(
-      "NEXT_PUBLIC_APP_URL is not set. Set it to the deployed URL (e.g. https://app.example.com)."
+      "Neither NEXT_PUBLIC_APP_URL nor APP_URL is set. Set NEXT_PUBLIC_APP_URL to the deployed URL (e.g. https://app.example.com)."
     );
   }
-  return (configured || process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  return (configured || "http://localhost:3000").replace(/\/$/, "");
 }
 
 /**
