@@ -401,12 +401,13 @@ export async function approveContent(input: {
 
   if (error) return { error: error.message };
 
-  await enqueuePublishJobsForContent({
+  const queued = await enqueuePublishJobsForContent({
     contentId: input.contentId,
     organisationId: input.organisationId,
     scheduledAt,
     userId: auth.user.id,
   });
+  if (queued.error) return { error: queued.error };
 
   const admin = createAdminClient();
   await logAutomationActivity(admin, {

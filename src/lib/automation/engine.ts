@@ -703,12 +703,13 @@ export async function runAutomationForOrganisation(input: {
                 .eq("id", contentRow.id)
                 .eq("organisation_id", organisationId);
 
-              await enqueuePublishJobsForContent({
+              const queued = await enqueuePublishJobsForContent({
                 contentId: contentRow.id,
                 organisationId,
                 scheduledAt,
                 userId: actorId,
               });
+              if (queued.error) errors.push(queued.error);
 
               await logAutomationActivity(admin, {
                 organisationId,
@@ -818,12 +819,13 @@ export async function runAutomationForOrganisation(input: {
             .update({ status: "scheduled", scheduled_at: when })
             .eq("id", item.id);
 
-          await enqueuePublishJobsForContent({
+          const queued = await enqueuePublishJobsForContent({
             contentId: item.id,
             organisationId,
             scheduledAt: when,
             userId: actorId,
           });
+          if (queued.error) errors.push(queued.error);
 
           await logAutomationActivity(admin, {
             organisationId,

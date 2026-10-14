@@ -12,6 +12,10 @@ import {
   type PublishErrorType,
 } from "@/lib/social/errors";
 import { isPublishingSimulationEnabled } from "@/lib/social/simulation";
+import {
+  contentStatusAllows,
+  getPublisherRole,
+} from "@/lib/social/publish-authz";
 import { logAutomationActivity } from "@/lib/automation/settings";
 import { notifyAutomationIssue } from "@/lib/automation/notify";
 import type { Json } from "@/lib/database.types";
@@ -95,6 +99,102 @@ async function automationAllowsPublish(
     };
   }
 
+  return { ok: true };
+}
+
+export type HoldReason =
+  | "MISSING_ACTOR"
+  | "ACTOR_NOT_AUTHORISED"
+  | "CONTENT_NOT_APPROVED"
+  | "ACCOUNT_CHANGED";
+
+/**
+ * Park a claimed job in `held` until someone authorised re-approves /
+ * re-queues it. Held jobs are never picked up by the cron worker.
+ */
+export async function holdPublishJob(
+  admin: Admin,
+  job: { id: string; organisation_id: string; platform: string },
+  reason: HoldReason,
+  message: string
+) {
+  const { error } = await admin
+    .from("social_publish_jobs")
+    .update({
+      status: "held",
+      hold_reason: reason,
+      held_at: new Date().toISOString(),
+      error_type: "PERMISSION_ERROR",
+      error_code: reason,
+      error_message: message,
+      locked_at: null,
+      lock_token: null,
+    })
+    .eq("id", job.id)
+    .eq("organisation_id", job.organisation_id);
+  if (error) {
+    // Leave it locked in processing rather than risk executing it; the
+    // abandoned-lock recovery will re-run the gate later.
+    console.error(
+      JSON.stringify({ scope: "publishing", job_id: job.id, hold_failed: error.message })
+    );
+  }
+
+  await logAutomationActivity(admin, {
+    organisationId: job.organisation_id,
+    eventType: "publish_held",
+    message,
+    severity: "warning",
+    metadata: { job_id: job.id, reason },
+  });
+  return { held: true as const, reason };
+}
+
+/**
+ * Execution-time authorisation. Cron and automation run with the service
+ * role and act as the job's `created_by`, so re-check that the actor still
+ * holds a publishing role and the content is still approved/scheduled.
+ */
+async function executionGate(
+  admin: Admin,
+  job: {
+    id: string;
+    organisation_id: string;
+    content_id: string;
+    platform: string;
+    created_by: string | null;
+  }
+): Promise<{ ok: true } | { ok: false; reason: HoldReason; message: string }> {
+  if (!job.created_by) {
+    return {
+      ok: false,
+      reason: "MISSING_ACTOR",
+      message: "This post has no authorising user. Re-approve it to publish.",
+    };
+  }
+  const role = await getPublisherRole(admin, job.organisation_id, job.created_by);
+  if (!role) {
+    return {
+      ok: false,
+      reason: "ACTOR_NOT_AUTHORISED",
+      message:
+        "The person who queued this post no longer has publishing access. Re-approve it to publish.",
+    };
+  }
+  const { data: content, error } = await admin
+    .from("content")
+    .select("status")
+    .eq("id", job.content_id)
+    .eq("organisation_id", job.organisation_id)
+    .maybeSingle();
+  if (error) throw new Error(`Content lookup failed: ${error.message}`);
+  if (!content || !contentStatusAllows(content.status, "execute")) {
+    return {
+      ok: false,
+      reason: "CONTENT_NOT_APPROVED",
+      message: "This content is no longer approved. Re-approve it to publish.",
+    };
+  }
   return { ok: true };
 }
 
@@ -419,6 +519,25 @@ export async function processClaimedPublishJob(
     }
   }
 
+  // Authorisation at execution time — never skipped, not even by `force`.
+  const gate = await executionGate(admin, job);
+  if (!gate.ok) {
+    await observe({
+      organisationId: job.organisation_id,
+      platform: job.platform,
+      jobId: job.id,
+      contentId: job.content_id,
+      attempt: job.attempt_count,
+      result: "held",
+      errorType: gate.reason,
+      durationMs: Date.now() - started,
+    });
+    const held = await holdPublishJob(admin, job, gate.reason, gate.message);
+    return { ...held, error: gate.message };
+  }
+
+  // `force` = explicit, already-authorised manual action: skip only the
+  // automation mode / pause hold below.
   const modeGate = await automationAllowsPublish(
     admin,
     job.organisation_id,
@@ -524,22 +643,14 @@ export async function processClaimedPublishJob(
     }
   }
 
-  const actorId = job.created_by;
-  if (!actorId) {
-    await markRetryOrFail(admin, job, {
-      type: "UNKNOWN_ERROR",
-      retryable: false,
-      message: "Missing authorization context for this job.",
-    });
-    return { error: "missing_creator" };
-  }
+  // executionGate() guaranteed an authorised actor.
+  const actorId = job.created_by as string;
 
   const result = await publishContent({
     contentId: job.content_id,
     socialAccountId: job.social_account_id,
     contentPlatformId: job.content_platform_id,
     userId: actorId,
-    force: true,
     system: true,
     publishJobId: job.id,
     simulated,

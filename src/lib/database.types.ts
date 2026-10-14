@@ -2437,6 +2437,8 @@ export type Database = {
           error_type: string | null
           external_post_id: string | null
           external_url: string | null
+          held_at: string | null
+          hold_reason: string | null
           id: string
           idempotency_key: string | null
           last_attempt_at: string | null
@@ -2467,6 +2469,8 @@ export type Database = {
           error_type?: string | null
           external_post_id?: string | null
           external_url?: string | null
+          held_at?: string | null
+          hold_reason?: string | null
           id?: string
           idempotency_key?: string | null
           last_attempt_at?: string | null
@@ -2497,6 +2501,8 @@ export type Database = {
           error_type?: string | null
           external_post_id?: string | null
           external_url?: string | null
+          held_at?: string | null
+          hold_reason?: string | null
           id?: string
           idempotency_key?: string | null
           last_attempt_at?: string | null
@@ -2764,6 +2770,7 @@ export type Database = {
         | "retrying"
         | "expired"
         | "ready"
+        | "held"
       social_platform: "instagram" | "facebook" | "tiktok"
     }
     CompositeTypes: {
@@ -2949,6 +2956,7 @@ export const Constants = {
         "retrying",
         "expired",
         "ready",
+        "held",
       ],
       social_platform: ["instagram", "facebook", "tiktok"],
     },

@@ -144,6 +144,7 @@ export async function getPublishingDashboard(
         "ready",
         "processing",
         "retrying",
+        "held",
         "published",
         "failed",
       ])

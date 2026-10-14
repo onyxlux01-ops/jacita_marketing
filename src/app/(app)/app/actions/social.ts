@@ -10,6 +10,7 @@ import {
 } from "@/lib/social/meta-app-credentials";
 import { getSocialAdapter } from "@/lib/social/registry";
 import { enqueuePublishJobsForContent } from "@/lib/social/scheduler";
+import { contentStatusAllows } from "@/lib/social/publish-authz";
 import type { SocialPlatform } from "@/lib/types";
 
 async function getAuthed() {
@@ -85,7 +86,7 @@ export async function disconnectSocialAccount(input: {
     })
     .eq("social_account_id", account.id)
     .eq("organisation_id", input.organisationId)
-    .in("status", ["pending", "ready", "retrying", "processing"]);
+    .in("status", ["pending", "ready", "retrying", "processing", "held"]);
 
   await auth.supabase.from("audit_logs").insert({
     organisation_id: input.organisationId,
@@ -146,41 +147,60 @@ export async function scheduleContentPublishing(input: {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
 
+  const when = new Date(input.scheduledAt);
+  if (Number.isNaN(when.getTime())) return { error: "Invalid schedule time" };
+  const scheduledAt = when.toISOString();
+
+  const { data: membership } = await auth.supabase
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", input.organisationId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
+    return { error: "Only owners and managers can schedule publishing" };
+  }
+
   const { data: content } = await auth.supabase
     .from("content")
-    .select("id, organisation_id, status")
+    .select("id, organisation_id, status, scheduled_at")
     .eq("id", input.contentId)
     .eq("organisation_id", input.organisationId)
     .maybeSingle();
 
   if (!content) return { error: "Content not found" };
+  if (!contentStatusAllows(content.status, "enqueue")) {
+    return { error: "Approve this content before scheduling it" };
+  }
 
-  const { data: membership } = await auth.supabase
-    .from("organisation_members")
-    .select("id")
-    .eq("organisation_id", input.organisationId)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-  if (!membership) return { error: "Unauthorized" };
-
-  await auth.supabase
+  const { data: marked, error: markError } = await auth.supabase
     .from("content")
-    .update({
-      status: "scheduled",
-      scheduled_at: input.scheduledAt,
-    })
-    .eq("id", input.contentId);
+    .update({ status: "scheduled", scheduled_at: scheduledAt })
+    .eq("id", input.contentId)
+    .eq("organisation_id", input.organisationId)
+    .select("id");
+  if (markError) return { error: markError.message };
+  if (!marked?.length) return { error: "Content could not be scheduled" };
 
   const jobs = await enqueuePublishJobsForContent({
     organisationId: input.organisationId,
     contentId: input.contentId,
-    scheduledAt: input.scheduledAt,
+    scheduledAt,
     userId: auth.user.id,
   });
 
-  if (!jobs.jobIds.length) {
+  if (jobs.error || !jobs.jobIds.length) {
+    // Do not leave content looking scheduled when nothing was queued.
+    if (!jobs.jobIds.length) {
+      await auth.supabase
+        .from("content")
+        .update({ status: content.status, scheduled_at: content.scheduled_at })
+        .eq("id", input.contentId)
+        .eq("organisation_id", input.organisationId);
+    }
     return {
       error:
+        jobs.error ||
         "No connected social accounts match this content’s platforms. Connect accounts first.",
     };
   }
@@ -191,7 +211,7 @@ export async function scheduleContentPublishing(input: {
     action: "content.scheduled_publish",
     entity_type: "content",
     entity_id: input.contentId,
-    metadata: { job_count: jobs.jobIds.length, scheduled_at: input.scheduledAt },
+    metadata: { job_count: jobs.jobIds.length, scheduled_at: scheduledAt },
   });
 
   revalidatePath("/app/content");

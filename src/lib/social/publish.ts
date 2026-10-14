@@ -15,7 +15,22 @@ import {
   isPublishingSimulationEnabled,
   wrapAdapterForSimulation,
 } from "@/lib/social/simulation";
+import {
+  contentStatusAllows,
+  resolveContentPlatform,
+} from "@/lib/social/publish-authz";
 import type { SocialPlatform } from "@/lib/types";
+
+function reportPersistError(
+  step: string,
+  id: string,
+  error: { message: string } | null
+) {
+  if (!error) return;
+  console.error(
+    JSON.stringify({ scope: "publishing", persist_failed: step, id, error: error.message })
+  );
+}
 
 async function resolveMedia(
   organisationId: string,
@@ -63,9 +78,10 @@ export type PublishContentResult =
     };
 
 /**
- * Central publishing service.
- * Enforces same-org content + social account + membership.
- * All publishing goes through adapters — never from the browser.
+ * Central publishing service (service role). Only called by the job engine.
+ * Enforces, regardless of caller: owner/manager actor, approved/scheduled
+ * content, same-org content + social account, and a server-derived platform
+ * row. All publishing goes through adapters — never from the browser.
  */
 export async function publishContent(input: {
   contentId: string;
@@ -73,7 +89,6 @@ export async function publishContent(input: {
   userId: string;
   contentPlatformId?: string | null;
   tiktokPrivacyLevel?: string | null;
-  force?: boolean;
   system?: boolean;
   publishJobId?: string | null;
   simulated?: boolean;
@@ -105,10 +120,18 @@ export async function publishContent(input: {
     .eq("user_id", input.userId)
     .maybeSingle();
 
-  if (!membership) {
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
     return {
-      error: "Unauthorized for this business",
+      error: "Only owners and managers can publish for this business",
       errorType: "PERMISSION_ERROR",
+      retryable: false,
+    };
+  }
+
+  if (!contentStatusAllows(contentRow.status, "execute")) {
+    return {
+      error: "Approve or schedule this content before publishing.",
+      errorType: "MODE_BLOCKED",
       retryable: false,
     };
   }
@@ -150,63 +173,25 @@ export async function publishContent(input: {
     };
   }
 
-  // Idempotency: never re-post if this platform row already has an external ID
-  if (input.contentPlatformId) {
-    const { data: existingCp } = await admin
-      .from("content_platforms")
-      .select("external_post_id, publish_status")
-      .eq("id", input.contentPlatformId)
-      .maybeSingle();
-    if (
-      existingCp?.external_post_id &&
-      existingCp.publish_status === "published"
-    ) {
-      return {
-        success: true as const,
-        externalPostId: existingCp.external_post_id,
-        status: "published" as const,
-        simulated: false,
-      };
-    }
-  } else {
-    const { data: existingCp } = await admin
-      .from("content_platforms")
-      .select("id, external_post_id, publish_status")
-      .eq("content_id", contentRow.id)
-      .eq("platform", account.platform)
-      .eq("social_account_id", account.id)
-      .maybeSingle();
-    if (
-      existingCp?.external_post_id &&
-      existingCp.publish_status === "published"
-    ) {
-      return {
-        success: true as const,
-        externalPostId: existingCp.external_post_id,
-        status: "published" as const,
-        simulated: false,
-      };
-    }
+  // Derive the platform row from (content, platform); a mismatching supplied
+  // id is rejected BEFORE the duplicate check so foreign rows never leak.
+  const cp = await resolveContentPlatform(admin, {
+    contentId: contentRow.id,
+    platform: account.platform,
+    suppliedId: input.contentPlatformId,
+  });
+  if (!cp.ok) {
+    return { error: cp.error, errorType: "BLOCKED_ACCOUNT", retryable: false };
   }
+  const contentPlatformId = cp.row.id;
 
-  const { data: org } = await admin
-    .from("organisations")
-    .select("autopilot_mode")
-    .eq("id", contentRow.organisation_id)
-    .maybeSingle();
-
-  if (
-    !input.force &&
-    org?.autopilot_mode === "manual" &&
-    !["approved", "scheduled", "failed", "publishing"].includes(
-      contentRow.status
-    )
-  ) {
+  // Idempotency: never re-post if this platform row already has an external ID
+  if (cp.row.external_post_id && cp.row.publish_status === "published") {
     return {
-      error:
-        "This business is in Manual mode. Approve or schedule content before publishing.",
-      errorType: "MODE_BLOCKED",
-      retryable: false,
+      success: true as const,
+      externalPostId: cp.row.external_post_id,
+      status: "published" as const,
+      simulated: false,
     };
   }
 
@@ -341,20 +326,28 @@ export async function publishContent(input: {
   }
 
   const startedAt = new Date().toISOString();
-  await admin
+  // Pre-flight writes must succeed before anything reaches the provider.
+  const { error: contentStartError } = await admin
     .from("content")
     .update({ status: "publishing" })
     .eq("id", contentRow.id)
     .eq("organisation_id", contentRow.organisation_id);
-
-  if (input.contentPlatformId) {
-    await admin
-      .from("content_platforms")
-      .update({
-        publish_status: "publishing",
-        social_account_id: account.id,
-      })
-      .eq("id", input.contentPlatformId);
+  const { error: cpStartError } = contentStartError
+    ? { error: null }
+    : await admin
+        .from("content_platforms")
+        .update({
+          publish_status: "publishing",
+          social_account_id: account.id,
+        })
+        .eq("id", contentPlatformId)
+        .eq("content_id", contentRow.id);
+  if (contentStartError || cpStartError) {
+    return {
+      error: `Could not record publish start: ${(contentStartError || cpStartError)!.message}`,
+      errorType: "UNKNOWN_ERROR",
+      retryable: true,
+    };
   }
 
   try {
@@ -396,39 +389,59 @@ export async function publishContent(input: {
     const publishedAt =
       finalStatus === "published" ? new Date().toISOString() : null;
 
-    await admin
-      .from("content")
-      .update({
-        status: finalStatus === "published" ? "published" : "publishing",
-        published_at: publishedAt,
-      })
-      .eq("id", contentRow.id);
+    // The post is live from here on: persistence failures must be loud but
+    // must not turn into a "failed" result that invites a re-post.
+    reportPersistError(
+      "content.published",
+      contentRow.id,
+      (
+        await admin
+          .from("content")
+          .update({
+            status: finalStatus === "published" ? "published" : "publishing",
+            published_at: publishedAt,
+          })
+          .eq("id", contentRow.id)
+          .eq("organisation_id", contentRow.organisation_id)
+      ).error
+    );
 
-    if (input.contentPlatformId) {
-      await admin
-        .from("content_platforms")
-        .update({
-          publish_status:
-            finalStatus === "published" ? "published" : "publishing",
-          external_post_id: externalPostId,
-          published_at: publishedAt,
-          error_message: null,
-          last_publish_at: new Date().toISOString(),
-          social_account_id: account.id,
-        })
-        .eq("id", input.contentPlatformId);
-    }
+    reportPersistError(
+      "content_platforms.published",
+      contentPlatformId,
+      (
+        await admin
+          .from("content_platforms")
+          .update({
+            publish_status:
+              finalStatus === "published" ? "published" : "publishing",
+            external_post_id: externalPostId,
+            published_at: publishedAt,
+            error_message: null,
+            last_publish_at: new Date().toISOString(),
+            social_account_id: account.id,
+          })
+          .eq("id", contentPlatformId)
+          .eq("content_id", contentRow.id)
+      ).error
+    );
 
-    await admin
-      .from("social_accounts")
-      .update({ health_status: "healthy", last_error: null })
-      .eq("id", account.id);
+    reportPersistError(
+      "social_accounts.healthy",
+      account.id,
+      (
+        await admin
+          .from("social_accounts")
+          .update({ health_status: "healthy", last_error: null })
+          .eq("id", account.id)
+      ).error
+    );
 
     const completedAt = new Date().toISOString();
     await admin.from("social_publish_logs").insert({
       organisation_id: contentRow.organisation_id,
       content_id: contentRow.id,
-      content_platform_id: input.contentPlatformId || null,
+      content_platform_id: contentPlatformId,
       social_account_id: account.id,
       publish_job_id: input.publishJobId || null,
       platform: account.platform,
@@ -461,21 +474,33 @@ export async function publishContent(input: {
     const classified = classifyPublishError(error);
     const message = classified.message || userFacingSocialError(error);
 
-    await admin
-      .from("content")
-      .update({ status: "failed" })
-      .eq("id", contentRow.id);
+    reportPersistError(
+      "content.failed",
+      contentRow.id,
+      (
+        await admin
+          .from("content")
+          .update({ status: "failed" })
+          .eq("id", contentRow.id)
+          .eq("organisation_id", contentRow.organisation_id)
+      ).error
+    );
 
-    if (input.contentPlatformId) {
-      await admin
-        .from("content_platforms")
-        .update({
-          publish_status: "failed",
-          error_message: message,
-          social_account_id: account.id,
-        })
-        .eq("id", input.contentPlatformId);
-    }
+    reportPersistError(
+      "content_platforms.failed",
+      contentPlatformId,
+      (
+        await admin
+          .from("content_platforms")
+          .update({
+            publish_status: "failed",
+            error_message: message,
+            social_account_id: account.id,
+          })
+          .eq("id", contentPlatformId)
+          .eq("content_id", contentRow.id)
+      ).error
+    );
 
     if (classified.type === "AUTHENTICATION_ERROR") {
       await admin
@@ -491,7 +516,7 @@ export async function publishContent(input: {
     await admin.from("social_publish_logs").insert({
       organisation_id: contentRow.organisation_id,
       content_id: contentRow.id,
-      content_platform_id: input.contentPlatformId || null,
+      content_platform_id: contentPlatformId,
       social_account_id: account.id,
       publish_job_id: input.publishJobId || null,
       platform: account.platform,
