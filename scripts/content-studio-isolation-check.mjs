@@ -3,17 +3,10 @@
  * Salon vs Restaurant — packages/media/services/AI history stay separate.
  */
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
+// LOCAL ONLY: reads .env.test and refuses any non-localhost Supabase URL.
+import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
 
-const env = Object.fromEntries(
-  readFileSync(".env.local", "utf8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((l) => {
-      const i = l.indexOf("=");
-      return [l.slice(0, i), l.slice(i + 1)];
-    })
-);
+const env = loadLocalTestEnv(".env.test");
 
 const url = env.NEXT_PUBLIC_SUPABASE_URL;
 const anon =

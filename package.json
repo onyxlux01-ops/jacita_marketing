@@ -17,10 +17,11 @@
     "test:meta-suite": "node scripts/meta-completion-suite.mjs",
     "check:social": "node scripts/check-social-config.mjs",
     "check:openai": "node --env-file=.env.local scripts/check-openai.mjs",
-    "cleanup:test-artifacts": "node --env-file=.env.local scripts/cleanup-test-artifacts.mjs",
-    "verify:meta-live": "node --env-file=.env.local scripts/meta-live-verify.mjs",
+    "cleanup:test-artifacts:remote": "node --env-file=.env.local scripts/cleanup-test-artifacts-remote.mjs",
+    "verify:meta-live:remote": "node --env-file=.env.local scripts/meta-live-verify-remote.mjs",
     "test:integration": "node --import ./scripts/integration/register.mjs scripts/integration/run.mts",
-    "test:rls": "node scripts/rls-isolation-test.mjs"
+    "test:rls": "node scripts/rls-isolation-test.mjs",
+    "test:pglite": "node scripts/pglite/run.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.58",
@@ -49,6 +50,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

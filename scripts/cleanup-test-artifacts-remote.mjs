@@ -2,9 +2,20 @@
  * Delete Jacita system TEST Meta posts + PAUSED test campaign, then soft-clean DB rows.
  *
  * Usage:
- *   npx tsx --env-file=.env.local scripts/cleanup-test-artifacts.mjs
- *   npx tsx --env-file=.env.local scripts/cleanup-test-artifacts.mjs --dry-run
+ *   npx tsx --env-file=.env.local scripts/cleanup-test-artifacts-remote.mjs
+ *   npx tsx --env-file=.env.local scripts/cleanup-test-artifacts-remote.mjs --dry-run
  */
+// =============================================================================
+// !!! REMOTE / LIVE SCRIPT — NOT A TEST !!!
+// cleanup-test-artifacts-remote.mjs reads .env.local and acts on the LIVE Supabase project (and, for some
+// modes, real Meta accounts). It is deliberately NOT guarded to localhost.
+// Never run it from CI or the integration suite. For local testing use
+// `npm run test:integration` / `npm run test:rls` (they load .env.test).
+// =============================================================================
+console.warn(
+  "\n\u26a0\ufe0f  cleanup-test-artifacts-remote.mjs: REMOTE/LIVE script — acting on the project in .env.local\n"
+);
+
 import { createClient } from "@supabase/supabase-js";
 import { createDecipheriv } from "crypto";
 

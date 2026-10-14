@@ -2,8 +2,19 @@
  * Read-only Meta live verification against connected social_accounts.
  * Does NOT publish. Does NOT create ad campaigns or spend money.
  *
- * Usage: node --env-file=.env.local scripts/meta-live-verify.mjs
+ * Usage: node --env-file=.env.local scripts/meta-live-verify-remote.mjs
  */
+// =============================================================================
+// !!! REMOTE / LIVE SCRIPT — NOT A TEST !!!
+// meta-live-verify-remote.mjs reads .env.local and acts on the LIVE Supabase project (and, for some
+// modes, real Meta accounts). It is deliberately NOT guarded to localhost.
+// Never run it from CI or the integration suite. For local testing use
+// `npm run test:integration` / `npm run test:rls` (they load .env.test).
+// =============================================================================
+console.warn(
+  "\n\u26a0\ufe0f  meta-live-verify-remote.mjs: REMOTE/LIVE script — acting on the project in .env.local\n"
+);
+
 import { createClient } from "@supabase/supabase-js";
 import { createDecipheriv } from "crypto";
 

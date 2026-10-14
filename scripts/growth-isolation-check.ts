@@ -1,6 +1,7 @@
 /**
  * Growth intelligence isolation checks.
- * Run: load .env.local then npx tsx scripts/growth-isolation-check.ts
+ * LOCAL ONLY: npx tsx scripts/growth-isolation-check.ts
+ * Reads .env.test and refuses any non-localhost Supabase URL.
  */
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -8,6 +9,9 @@ import {
   computeMarketingHealthScore,
   percentChange,
 } from "../src/lib/analytics";
+import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
+
+loadLocalTestEnv(".env.test");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

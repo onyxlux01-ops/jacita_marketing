@@ -1,7 +1,18 @@
 /**
  * Fill All Hair & Beauty + create Precise Cleaning from their websites.
- * Usage: node --env-file=.env.local scripts/seed-business-profiles.mjs
+ * Usage: node --env-file=.env.local scripts/seed-business-profiles-remote.mjs
  */
+// =============================================================================
+// !!! REMOTE / LIVE SCRIPT — NOT A TEST !!!
+// seed-business-profiles-remote.mjs reads .env.local and acts on the LIVE Supabase project (and, for some
+// modes, real Meta accounts). It is deliberately NOT guarded to localhost.
+// Never run it from CI or the integration suite. For local testing use
+// `npm run test:integration` / `npm run test:rls` (they load .env.test).
+// =============================================================================
+console.warn(
+  "\n\u26a0\ufe0f  seed-business-profiles-remote.mjs: REMOTE/LIVE script — acting on the project in .env.local\n"
+);
+
 import { createClient } from "@supabase/supabase-js";
 
 const sb = createClient(

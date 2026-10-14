@@ -9,6 +9,17 @@
  *
  * Does not write PUBLISHING_SIMULATION into .env.local.
  */
+// =============================================================================
+// !!! REMOTE / LIVE SCRIPT — NOT A TEST !!!
+// e2e-publish-and-ads-remote.ts reads .env.local and acts on the LIVE Supabase project (and, for some
+// modes, real Meta accounts). It is deliberately NOT guarded to localhost.
+// Never run it from CI or the integration suite. For local testing use
+// `npm run test:integration` / `npm run test:rls` (they load .env.test).
+// =============================================================================
+console.warn(
+  "\n\u26a0\ufe0f  e2e-publish-and-ads-remote.ts: REMOTE/LIVE script — acting on the project in .env.local\n"
+);
+
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 

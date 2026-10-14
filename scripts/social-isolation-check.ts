@@ -1,11 +1,13 @@
 /**
  * Cross-tenant isolation checks for social publishing.
- * Run with: npx tsx scripts/social-isolation-check.ts
- *
- * Requires SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL.
+ * LOCAL ONLY: npx tsx scripts/social-isolation-check.ts
+ * Reads .env.test and refuses any non-localhost Supabase URL.
  * Creates temporary orgs if needed; cleans up when SOCIAL_TEST_CLEANUP=1.
  */
 import { createClient } from "@supabase/supabase-js";
+import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
+
+loadLocalTestEnv(".env.test");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
