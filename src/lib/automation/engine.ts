@@ -696,13 +696,15 @@ export async function runAutomationForOrganisation(input: {
               contentOrganisationId: organisationId,
               platformsAllowed: settings.platforms,
             });
-            if (scheduleGate.ok) {
-              await admin
-                .from("content")
-                .update({ status: "scheduled", scheduled_at: scheduledAt })
-                .eq("id", contentRow.id)
-                .eq("organisation_id", organisationId);
-
+            const { error: markError } = scheduleGate.ok
+              ? await admin
+                  .from("content")
+                  .update({ status: "scheduled", scheduled_at: scheduledAt })
+                  .eq("id", contentRow.id)
+                  .eq("organisation_id", organisationId)
+              : { error: null };
+            if (markError) errors.push(`Could not schedule content: ${markError.message}`);
+            if (scheduleGate.ok && !markError) {
               const queued = await enqueuePublishJobsForContent({
                 contentId: contentRow.id,
                 organisationId,

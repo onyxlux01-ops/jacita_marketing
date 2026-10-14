@@ -251,3 +251,38 @@ test("publish: retryPublishJob refuses staff and re-checks content state", async
   assert.ok("error" in draft && draft.error);
   assert.equal(callsFor(contentId).length, 0);
 });
+
+test("publish: content studio surfaces a failed schedule instead of reporting success", async () => {
+  const { orgId, manager } = await teamOrg("studiosched");
+  // No connected accounts → scheduling cannot queue anything.
+  const { saveContentPackage } = await import(
+    "../../../src/app/(app)/app/actions/content-studio"
+  );
+  actAs(manager);
+  const res = await saveContentPackage({
+    organisation_id: orgId,
+    title: "Studio post",
+    caption: "Hello",
+    platforms: ["facebook"],
+    status: "scheduled",
+    scheduled_at: new Date(Date.now() + 3600_000).toISOString(),
+  });
+  actAs(null);
+  assert.ok("error" in res && res.error, JSON.stringify(res));
+  const id = (res as { id?: string }).id!;
+  const { data } = await admin.from("content").select("status").eq("id", id).single();
+  assert.equal(data?.status, "approved", "must not be left looking scheduled");
+  assert.equal((await jobsFor(id)).length, 0);
+});
+
+test("publish: approveContent with no matching account does not leave content scheduled", async () => {
+  const { orgId, manager } = await teamOrg("approvenoacct");
+  const { contentId } = await createContent(orgId, manager.id, "review");
+  const { approveContent } = await import("../../../src/app/(app)/app/actions/automation");
+  actAs(manager);
+  const res = await approveContent({ organisationId: orgId, contentId });
+  actAs(null);
+  assert.ok("error" in res && res.error);
+  const { data } = await admin.from("content").select("status").eq("id", contentId).single();
+  assert.equal(data?.status, "approved");
+});

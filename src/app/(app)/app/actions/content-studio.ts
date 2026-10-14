@@ -147,7 +147,9 @@ export async function saveContentPackage(payload: {
       tone: payload.tone || null,
       quality_score: payload.quality_score ?? null,
       quality_flags: payload.quality_flags ?? [],
-      status,
+      // "scheduled" is only true once jobs are queued: save as approved and
+      // let scheduleContentPublishing move it to scheduled (or report why not).
+      status: status === "scheduled" ? "approved" : status,
       scheduled_at: scheduledAt,
       generation_payload: payload.generation_payload ?? null,
       created_by: auth.user.id,
@@ -239,11 +241,18 @@ export async function saveContentPackage(payload: {
     const { scheduleContentPublishing } = await import(
       "@/app/(app)/app/actions/social"
     );
-    await scheduleContentPublishing({
+    const scheduled = await scheduleContentPublishing({
       contentId: data.id,
       organisationId: payload.organisation_id,
       scheduledAt,
     });
+    if ("error" in scheduled && scheduled.error) {
+      revalidatePath("/app/content");
+      return {
+        error: `Saved as approved, but it was not scheduled: ${scheduled.error}`,
+        id: data.id,
+      };
+    }
   }
 
   revalidatePath("/app/content");

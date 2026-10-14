@@ -390,16 +390,18 @@ export async function approveContent(input: {
     content.suggested_posting_time ||
     new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
-  const { error } = await auth.supabase
+  const { data: marked, error } = await auth.supabase
     .from("content")
     .update({
       status: "scheduled",
       scheduled_at: scheduledAt,
     })
     .eq("id", input.contentId)
-    .eq("organisation_id", input.organisationId);
+    .eq("organisation_id", input.organisationId)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!marked?.length) return { error: "Content could not be approved" };
 
   const queued = await enqueuePublishJobsForContent({
     contentId: input.contentId,
@@ -407,7 +409,21 @@ export async function approveContent(input: {
     scheduledAt,
     userId: auth.user.id,
   });
-  if (queued.error) return { error: queued.error };
+  if (queued.error || !queued.jobIds.length) {
+    // Approval stands, but don't show it as scheduled when nothing queued.
+    if (!queued.jobIds.length) {
+      await auth.supabase
+        .from("content")
+        .update({ status: "approved", scheduled_at: content.scheduled_at })
+        .eq("id", input.contentId)
+        .eq("organisation_id", input.organisationId);
+    }
+    return {
+      error:
+        queued.error ||
+        "Approved, but no connected account matches this content's platforms, so nothing was scheduled.",
+    };
+  }
 
   const admin = createAdminClient();
   await logAutomationActivity(admin, {
