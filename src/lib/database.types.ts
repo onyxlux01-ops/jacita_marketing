@@ -2862,6 +2862,16 @@ export type Database = {
         Args: { p_email: string; p_organisation_id: string }
         Returns: boolean
       }
+      reconcile_advertising_action: {
+        Args: {
+          p_action_id: string
+          p_actor_user_id: string
+          p_min_age?: string
+          p_note?: string
+          p_outcome: string
+        }
+        Returns: Json
+      }
       schedule_content: {
         Args: {
           p_actor_user_id: string

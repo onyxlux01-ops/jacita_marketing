@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   approveMetaAdAction,
   rejectMetaAdAction,
+  reconcileMetaAdAction,
   discoverMetaAdAccounts,
   saveAdvertisingLimits,
 } from "@/app/(app)/app/actions/meta-ads";
@@ -33,6 +34,13 @@ export type MetaSurfaceSnapshot = {
     limitPeriod: "daily" | "lifetime";
     activeCampaigns: number;
     spend7d: number;
+    stuckActions?: Array<{
+      id: string;
+      action_type: string;
+      error_message: string | null;
+      executing_started_at: string | null;
+      cacheWriteFailed: boolean;
+    }>;
     pendingApprovals: Array<{
       id: string;
       action_type: string;
@@ -258,6 +266,64 @@ export function MetaConnectionsPanel({
             </Button>
           )}
         </div>
+
+        {ads.stuckActions?.length ? (
+          <div className="mt-5 space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/50 px-4 py-4">
+            <p className="text-sm font-semibold text-amber-950">Ad actions that need checking</p>
+            <p className="text-xs text-amber-900">
+              These started but never finished here. Check Meta Ads Manager first,
+              then record what actually happened. Nothing is re-run. Until then
+              they still count against your limits.
+            </p>
+            {ads.stuckActions.map((a) => (
+              <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">{a.action_type}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.error_message ||
+                      `Started ${a.executing_started_at ? new Date(a.executing_started_at).toLocaleString() : "earlier"}`}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {([
+                    ["succeeded", "It happened in Meta"],
+                    ["failed", "It did not happen"],
+                  ] as const).map(([outcome, label]) => (
+                    <Button
+                      key={outcome}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Record "${label}" for this ${a.action_type}? Check Meta Ads Manager first. ${
+                              outcome === "succeeded" ? "Sync campaigns afterwards so limits see the change." : ""
+                            }`
+                          )
+                        ) {
+                          return;
+                        }
+                        startTransition(async () => {
+                          const res = await reconcileMetaAdAction({
+                            organisationId: surface.organisationId,
+                            actionId: a.id,
+                            outcome,
+                          });
+                          if ("error" in res && res.error) toast.error(res.error);
+                          else toast.success("Recorded");
+                        });
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <AdLimitsForm
           organisationId={surface.organisationId}

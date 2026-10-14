@@ -235,3 +235,19 @@ export async function jobsFor(contentId: string) {
   if (error) throw error;
   return data as Array<Record<string, unknown>>;
 }
+
+/**
+ * Run SQL on the LOCAL Postgres as the database owner (guarded). Fixture use
+ * only, e.g. to simulate a failing write with a temporary trigger.
+ */
+export async function localSql(sql: string, params: unknown[] = []) {
+  const dbUrl = assertLocalUrl(process.env.SUPABASE_DB_URL!, "SUPABASE_DB_URL", LOCAL_DB_PORT);
+  const { default: pg } = await import("pg");
+  const client = new pg.Client({ connectionString: dbUrl });
+  await client.connect();
+  try {
+    return await client.query(sql, params);
+  } finally {
+    await client.end();
+  }
+}

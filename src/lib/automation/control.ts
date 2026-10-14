@@ -25,7 +25,8 @@ export type AttentionItem = {
     | "publish_failed"
     | "automation_error"
     | "setup"
-    | "openai";
+    | "openai"
+    | "ads";
   title: string;
   detail: string;
   href?: string;
@@ -495,6 +496,7 @@ export async function getNeedsAttention(
     { data: failed },
     { data: mediaNeeded },
     { data: ambiguousJobs },
+    { data: executingAds },
   ] = await Promise.all([
     supabase
       .from("automation_settings")
@@ -537,7 +539,32 @@ export async function getNeedsAttention(
       .or("status.eq.uncertain,and(status.eq.failed,error_code.eq.AMBIGUOUS_TIMEOUT)")
       .order("created_at", { ascending: false })
       .limit(5),
+    // Ad actions that may be stuck (crash, lost response, cache not updated).
+    supabase
+      .from("advertising_actions")
+      .select("id, action_type, error_message, executing_started_at, result")
+      .eq("organisation_id", organisationId)
+      .eq("status", "executing")
+      .order("executing_started_at", { ascending: true })
+      .limit(10),
   ]);
+
+  const adsCutoff = Date.now() - 15 * 60 * 1000;
+  for (const a of executingAds ?? []) {
+    const cacheFailed =
+      (a.result as { cache_write_failed?: boolean } | null)?.cache_write_failed === true;
+    const started = a.executing_started_at ? new Date(a.executing_started_at).getTime() : 0;
+    if (!cacheFailed && started >= adsCutoff) continue;
+    items.push({
+      id: `ads-stuck-${a.id}`,
+      kind: "ads",
+      title: `Ad action ${a.action_type} needs checking`,
+      detail:
+        a.error_message ||
+        "Started more than 15 minutes ago without finishing. Check Meta Ads Manager, then mark it failed or done.",
+      href: "/app/automation",
+    });
+  }
 
   for (const s of social ?? []) {
     if (

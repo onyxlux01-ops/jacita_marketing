@@ -172,6 +172,13 @@ export async function getMetaSurfaceForOrganisation(organisationId: string) {
     ).length;
   }
 
+  let stuckActions: Awaited<ReturnType<typeof listStuckAdvertisingActions>> = [];
+  try {
+    stuckActions = await listStuckAdvertisingActions(organisationId);
+  } catch (e) {
+    console.error("stuck ad actions", e instanceof Error ? e.message : e);
+  }
+
   return {
     organisationId,
     instagram: {
@@ -201,6 +208,7 @@ export async function getMetaSurfaceForOrganisation(organisationId: string) {
       limitPeriod: settings.limit_period,
       activeCampaigns,
       spend7d,
+      stuckActions,
       pendingApprovals: (pending || []).map((p) => ({
         id: p.id,
         action_type: p.action_type,
@@ -228,7 +236,7 @@ export async function proposeAdvertisingAction(input: {
   if ("error" in membership) return membership;
 
   const settings = await ensureAdvertisingSettings(input.organisationId);
-  if (settings.mode === "off") {
+  if (settings.mode === "off" && input.actionType !== "PAUSE_CAMPAIGN") {
     return { error: "Advertising is turned off for this business." as const };
   }
   // Pausing only reduces spend, so it stays possible during an emergency stop.
@@ -460,6 +468,32 @@ export async function approveAndExecuteAdvertisingAction(input: {
 
     return { success: true as const, result };
   } catch (e) {
+    if (e instanceof AdsCacheWriteError) {
+      const message = `Meta applied this change, but the local campaign cache could not be updated (${e.message}). Sync campaigns, then reconcile this action.`;
+      const { error: markError } = await db
+        .from("advertising_actions")
+        .update({
+          // Stays executing: still counted against the limits.
+          result: { ...e.result, cache_write_failed: true } as Json,
+          external_ids: (e.result.externalIds || {}) as Json,
+          error_message: message,
+        })
+        .eq("id", action.id)
+        .eq("status", "executing");
+      if (markError) {
+        console.error("could not record ads cache failure", action.id, markError.message);
+      }
+      console.error("ads cache write failed after Meta success", action.id, e.message);
+      await db.from("audit_logs").insert({
+        organisation_id: input.organisationId,
+        user_id: input.userId,
+        action: "ads.action_cache_write_failed",
+        entity_type: "advertising_actions",
+        entity_id: action.id,
+        metadata: { error: e.message, action_type: action.action_type },
+      });
+      return { error: message, code: "CACHE_WRITE_FAILED" as const };
+    }
     const message = e instanceof Error ? e.message : String(e);
     await db
       .from("advertising_actions")
@@ -480,6 +514,22 @@ export async function approveAndExecuteAdvertisingAction(input: {
     });
 
     return { error: message };
+  }
+}
+
+/**
+ * Meta accepted the change but the local campaign cache (which the limit
+ * checks read) could not be updated. The action is NOT failed: it stays
+ * `executing`, so claim_advertising_action keeps counting its effect, until
+ * an operator syncs campaigns and reconciles it.
+ */
+export class AdsCacheWriteError extends Error {
+  constructor(
+    message: string,
+    readonly result: { externalIds?: Record<string, unknown> } & Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "AdsCacheWriteError";
   }
 }
 
@@ -566,8 +616,9 @@ async function executeAdvertisingAction(input: {
         token,
         acct.external_ad_account_id
       );
+      const cacheErrors: string[] = [];
       for (const c of campaigns) {
-        await db.from("meta_ad_campaigns").upsert(
+        const { error: cacheError } = await db.from("meta_ad_campaigns").upsert(
           {
             organisation_id: input.organisationId,
             meta_ad_account_id: acct.id,
@@ -583,8 +634,13 @@ async function executeAdvertisingAction(input: {
           },
           { onConflict: "organisation_id,external_campaign_id" }
         );
+        if (cacheError) cacheErrors.push(`${c.externalCampaignId}: ${cacheError.message}`);
       }
-      return { campaigns, externalIds: {} };
+      const listed = { campaigns, externalIds: {} };
+      if (cacheErrors.length) {
+        throw new AdsCacheWriteError(cacheErrors.join("; "), listed);
+      }
+      return listed;
     }
     case "GET_CAMPAIGN_INSIGHTS": {
       const campaignId = String(input.payload.externalCampaignId || "");
@@ -628,7 +684,7 @@ async function executeAdvertisingAction(input: {
         }
       );
 
-      await db.from("meta_ad_campaigns").upsert(
+      const { error: createCacheError } = await db.from("meta_ad_campaigns").upsert(
         {
           organisation_id: input.organisationId,
           meta_ad_account_id: acct.id,
@@ -643,11 +699,14 @@ async function executeAdvertisingAction(input: {
         },
         { onConflict: "organisation_id,external_campaign_id" }
       );
-
-      return {
+      const createdResult = {
         campaign: created,
         externalIds: { campaign_id: created.externalCampaignId },
       };
+      if (createCacheError) {
+        throw new AdsCacheWriteError(createCacheError.message, createdResult);
+      }
+      return createdResult;
     }
     case "PAUSE_CAMPAIGN":
     case "ENABLE_CAMPAIGN": {
@@ -661,7 +720,7 @@ async function executeAdvertisingAction(input: {
         campaignId,
         status
       );
-      await db
+      const { data: statusRows, error: statusCacheError } = await db
         .from("meta_ad_campaigns")
         .update({
           status: updated.status,
@@ -669,11 +728,19 @@ async function executeAdvertisingAction(input: {
           last_synced_at: new Date().toISOString(),
         })
         .eq("organisation_id", input.organisationId)
-        .eq("external_campaign_id", campaignId);
-      return {
+        .eq("external_campaign_id", campaignId)
+        .select("id");
+      const statusResult = {
         campaign: updated,
         externalIds: { campaign_id: campaignId },
       };
+      if (statusCacheError || !statusRows?.length) {
+        throw new AdsCacheWriteError(
+          statusCacheError?.message || "campaign row not found",
+          statusResult
+        );
+      }
+      return statusResult;
     }
     case "UPDATE_CAMPAIGN": {
       const campaignId = String(input.payload.externalCampaignId || "");
@@ -711,15 +778,23 @@ async function executeAdvertisingAction(input: {
         cachePatch.effective_status = status;
       }
       if (input.payload.name) cachePatch.name = String(input.payload.name);
-      await db
+      const { data: patchedRows, error: patchCacheError } = await db
         .from("meta_ad_campaigns")
         .update(cachePatch)
         .eq("organisation_id", input.organisationId)
-        .eq("external_campaign_id", campaignId);
-      return {
+        .eq("external_campaign_id", campaignId)
+        .select("id");
+      const updateResult = {
         campaign: updated,
         externalIds: { campaign_id: campaignId },
       };
+      if (patchCacheError || !patchedRows?.length) {
+        throw new AdsCacheWriteError(
+          patchCacheError?.message || "campaign row not found",
+          updateResult
+        );
+      }
+      return updateResult;
     }
     default:
       throw new Error(`Unsupported advertising action: ${input.actionType}`);
@@ -836,4 +911,75 @@ export async function updateAdvertisingSettings(input: {
   });
 
   return { success: true as const, settings: toAdvertisingSettings(data) };
+}
+
+/** An action is "stuck" if it has been executing this long. */
+export const ADS_STUCK_AFTER_MS = 15 * 60 * 1000;
+
+/**
+ * Actions that need a person: executing for longer than ADS_STUCK_AFTER_MS
+ * (crash / lost response), or whose Meta change landed but the local cache
+ * write failed.
+ */
+export async function listStuckAdvertisingActions(organisationId: string) {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("advertising_actions")
+    .select("id, action_type, payload, error_message, executing_started_at, result")
+    .eq("organisation_id", organisationId)
+    .eq("status", "executing")
+    .order("executing_started_at", { ascending: true })
+    .limit(20);
+  if (error) throw new Error(`Could not list executing ad actions: ${error.message}`);
+  const cutoff = Date.now() - ADS_STUCK_AFTER_MS;
+  return (data || [])
+    .filter((a) => {
+      const cacheFailed =
+        (a.result as { cache_write_failed?: boolean } | null)?.cache_write_failed === true;
+      const started = a.executing_started_at ? new Date(a.executing_started_at).getTime() : 0;
+      return cacheFailed || started < cutoff;
+    })
+    .map((a) => ({
+      id: a.id,
+      action_type: a.action_type,
+      payload: a.payload,
+      error_message: a.error_message,
+      executing_started_at: a.executing_started_at,
+      cacheWriteFailed:
+        (a.result as { cache_write_failed?: boolean } | null)?.cache_write_failed === true,
+    }));
+}
+
+/**
+ * Close a stuck action as failed or succeeded AFTER the operator checked
+ * Meta Ads Manager. Never re-executes anything; audited in the database.
+ */
+export async function reconcileAdvertisingAction(input: {
+  organisationId: string;
+  userId: string;
+  actionId: string;
+  outcome: "failed" | "succeeded";
+  note?: string;
+}) {
+  const membership = await assertOrgMembership(input.organisationId, input.userId, true);
+  if ("error" in membership) return membership;
+  const db = createAdminClient();
+  const { data: owned } = await db
+    .from("advertising_actions")
+    .select("id")
+    .eq("id", input.actionId)
+    .eq("organisation_id", input.organisationId)
+    .maybeSingle();
+  if (!owned) return { error: "Action not found for this business" };
+
+  const { data, error } = await db.rpc("reconcile_advertising_action", {
+    p_action_id: input.actionId,
+    p_actor_user_id: input.userId,
+    p_outcome: input.outcome,
+    p_note: input.note ?? undefined,
+  });
+  if (error) return { error: error.message };
+  const res = data as unknown as { ok: boolean; error?: string; code?: string };
+  if (!res?.ok) return { error: res?.error || "Could not reconcile", code: res?.code };
+  return { success: true as const };
 }

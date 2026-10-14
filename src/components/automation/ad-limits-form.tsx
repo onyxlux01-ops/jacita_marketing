@@ -130,6 +130,11 @@ export function AdLimitsForm({
           : `The ${period} budgets of all active campaigns together may not exceed the limit.`}{" "}
         Campaigns must use {period} budgets.
       </p>
+      <p className="text-xs text-muted-foreground">
+        Limits check campaign-level budgets only. Budgets set on ad sets
+        (inside Meta Ads Manager) are not counted, so keep budgets at campaign
+        level for these limits to apply.
+      </p>
       <Button type="button" size="sm" disabled={pending} onClick={save}>
         Save limits
       </Button>

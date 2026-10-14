@@ -7,6 +7,7 @@ import {
   ensureAdvertisingSettings,
   getMetaSurfaceForOrganisation,
   proposeAdvertisingAction,
+  reconcileAdvertisingAction,
   rejectAdvertisingAction,
   updateAdvertisingSettings,
   type AdvertisingActionType,
@@ -152,4 +153,28 @@ export async function linkMetaAdAccount(input: {
     requiresApproval: true,
     actionId: proposed.action.id as string,
   };
+}
+
+/**
+ * Close an ad action stuck in "executing" after checking Meta Ads Manager.
+ * Never re-runs the action.
+ */
+export async function reconcileMetaAdAction(input: {
+  organisationId: string;
+  actionId: string;
+  outcome: "failed" | "succeeded";
+  note?: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+
+  const result = await reconcileAdvertisingAction({
+    organisationId: input.organisationId,
+    userId: auth.user.id,
+    actionId: input.actionId,
+    outcome: input.outcome,
+    note: input.note,
+  });
+  revalidatePath("/app/automation");
+  return result;
 }

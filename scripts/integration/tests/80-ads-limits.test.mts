@@ -273,3 +273,155 @@ test("ads: lifetime period checks lifetime budgets and refuses a daily-only budg
   assert.equal(raise.code, "SPEND_LIMIT", JSON.stringify(raise));
   assert.equal(calls.length, 2);
 });
+
+// ------------------------------------------------------------- review fixes
+
+test("ads: a cache write failure after Meta succeeded keeps the action counted", async () => {
+  const { localSql } = await import("../helpers.ts");
+  const b = await adsBusiness("adscache", { limit: 5000, scope: "business_total" });
+  await localSql(`
+    create or replace function public.itest_fail_cache() returns trigger language plpgsql as $$
+    begin
+      if new.name = 'FAIL-CACHE' then raise exception 'itest: cache write refused'; end if;
+      return new;
+    end $$;
+    drop trigger if exists itest_fail_cache on public.meta_ad_campaigns;
+    create trigger itest_fail_cache before insert or update on public.meta_ad_campaigns
+      for each row execute function public.itest_fail_cache();`);
+  try {
+    const calls: Calls = [];
+    mockMeta(calls);
+    const id = await propose(b, "CREATE_CAMPAIGN", {
+      name: "FAIL-CACHE",
+      dailyBudgetCents: 3000,
+      status: "ACTIVE",
+    });
+    const res = await approve(b, id);
+    assert.equal(res.code, "CACHE_WRITE_FAILED", JSON.stringify(res));
+    assert.match(String(res.error), /Sync campaigns, then reconcile/);
+    assert.equal(calls.length, 1);
+    const { data: row } = await admin
+      .from("advertising_actions")
+      .select("status, error_message, result")
+      .eq("id", id)
+      .single();
+    assert.equal(row?.status, "executing");
+    assert.ok(row?.error_message);
+    assert.equal((row?.result as { cache_write_failed?: boolean }).cache_write_failed, true);
+
+    // Still counted: another 3000 would overshoot the 5000 total.
+    const next = await approve(
+      b,
+      await propose(b, "CREATE_CAMPAIGN", { name: "Second", dailyBudgetCents: 3000, status: "ACTIVE" })
+    );
+    itest.metaFetch = null;
+    assert.equal(next.code, "SPEND_LIMIT", JSON.stringify(next));
+    assert.equal(calls.length, 1);
+
+    // Surfaced to the operator, and closable straight away (cache failure).
+    const { listStuckAdvertisingActions, reconcileAdvertisingAction } = await ads();
+    const stuck = await listStuckAdvertisingActions(b.orgId);
+    assert.deepEqual(stuck.map((s) => [s.id, s.cacheWriteFailed]), [[id, true]]);
+    const { getNeedsAttention } = await import("../../../src/lib/automation/control");
+    const items = await getNeedsAttention(admin as never, b.orgId);
+    assert.ok(items.some((i: { id: string }) => i.id === `ads-stuck-${id}`), JSON.stringify(items));
+    const rec = await reconcileAdvertisingAction({
+      organisationId: b.orgId,
+      userId: b.manager.id,
+      actionId: id,
+      outcome: "succeeded",
+    });
+    assert.ok("success" in rec && rec.success, JSON.stringify(rec));
+    assert.equal(await actionStatus(id), "succeeded");
+  } finally {
+    itest.metaFetch = null;
+    await localSql(`drop trigger if exists itest_fail_cache on public.meta_ad_campaigns;
+      drop function if exists public.itest_fail_cache();`);
+  }
+});
+
+test("ads: PAUSE works with ads turned off; other actions do not", async () => {
+  const b = await adsBusiness("adsoffpause", { limit: 5000 }, [{ id: "a", status: "ACTIVE", daily: 1000 }]);
+  const create = await propose(b, "CREATE_CAMPAIGN", { name: "Off", dailyBudgetCents: 1000 });
+  await admin.from("advertising_settings").update({ mode: "off" }).eq("organisation_id", b.orgId);
+  const pause = await propose(b, "PAUSE_CAMPAIGN", { externalCampaignId: "adsoffpause-a" });
+  const calls: Calls = [];
+  mockMeta(calls);
+  const paused = await approve(b, pause);
+  const refused = await approve(b, create);
+  itest.metaFetch = null;
+  assert.ok(paused.success, JSON.stringify(paused));
+  assert.equal(refused.code, "ADS_OFF", JSON.stringify(refused));
+  assert.equal(calls.length, 1);
+  const { data } = await admin
+    .from("meta_ad_campaigns")
+    .select("status")
+    .eq("external_campaign_id", "adsoffpause-a")
+    .single();
+  assert.equal(data?.status, "PAUSED");
+});
+
+test("ads: an action stuck in executing is flagged and only reconciled explicitly", async () => {
+  const b = await adsBusiness("adsstuck", { limit: 5000 });
+  const id = await propose(b, "CREATE_CAMPAIGN", { name: "Crashed", dailyBudgetCents: 1000 });
+  // Simulate a worker that claimed it and died.
+  await admin
+    .from("advertising_actions")
+    .update({ status: "executing", executing_started_at: new Date(Date.now() - 60_000).toISOString() })
+    .eq("id", id);
+  const { listStuckAdvertisingActions, reconcileAdvertisingAction, approveAndExecuteAdvertisingAction } =
+    await ads();
+  assert.deepEqual(await listStuckAdvertisingActions(b.orgId), []);
+  const early = await reconcileAdvertisingAction({
+    organisationId: b.orgId,
+    userId: b.manager.id,
+    actionId: id,
+    outcome: "failed",
+  });
+  assert.equal((early as { code?: string }).code, "TOO_EARLY", JSON.stringify(early));
+
+  await admin
+    .from("advertising_actions")
+    .update({ executing_started_at: new Date(Date.now() - 20 * 60_000).toISOString() })
+    .eq("id", id);
+  assert.deepEqual((await listStuckAdvertisingActions(b.orgId)).map((s) => s.id), [id]);
+  // Approving again never re-executes it.
+  const calls: Calls = [];
+  mockMeta(calls);
+  const again = await approveAndExecuteAdvertisingAction({
+    organisationId: b.orgId,
+    userId: b.manager.id,
+    actionId: id,
+  });
+  itest.metaFetch = null;
+  assert.equal((again as { code?: string }).code, "NOT_CLAIMABLE");
+  assert.equal(calls.length, 0);
+
+  const staffTry = await reconcileAdvertisingAction({
+    organisationId: b.orgId,
+    userId: b.staff.id,
+    actionId: id,
+    outcome: "failed",
+  });
+  assert.ok("error" in staffTry, JSON.stringify(staffTry));
+  const ok = await reconcileAdvertisingAction({
+    organisationId: b.orgId,
+    userId: b.manager.id,
+    actionId: id,
+    outcome: "failed",
+    note: "Checked Ads Manager: no campaign was created",
+  });
+  assert.ok("success" in ok && ok.success, JSON.stringify(ok));
+  const { data } = await admin
+    .from("advertising_actions")
+    .select("status, error_message")
+    .eq("id", id)
+    .single();
+  assert.deepEqual(data, { status: "failed", error_message: "Checked Ads Manager: no campaign was created" });
+  const { data: audit } = await admin
+    .from("audit_logs")
+    .select("action")
+    .eq("entity_id", id)
+    .eq("action", "ads.action_reconciled");
+  assert.equal(audit?.length, 1);
+});
