@@ -122,33 +122,134 @@ Open [http://localhost:3000](http://localhost:3000).
   owner), `accept_invite` and `transfer_ownership`; direct inserts (browser
   or service role) are refused by a trigger.
 
-## Deploying (live project)
+## Deploying (live project) — go-live order
 
-Apply migrations **in filename order** (`supabase db push` does this). Notes:
+Follow these steps in order.
 
-- `20261014090000_explicit_service_role_grants` must run before the later
-  2026-10-14 migrations; it is a no-op where Supabase's legacy default grants
-  already exist.
-- `20261014110000` (new enum value `held`) and
-  `20261014130000` (`uncertain`) are separate migrations on purpose: a new
-  enum value cannot be used in the transaction that adds it.
-- `20261014100000_membership_roles_hardening` stops if any business has more
-  than one owner; `20261014160000` stops if a post/account pair already has
-  two processing/uncertain jobs. Resolve those rows by hand first.
-- After `20261014180000_invites_accept`, scripts that inserted members with
-  the service role (e.g. `scripts/seed-business-profiles-remote.mjs`) no
-  longer work; use invites.
-- Dashboard settings the migrations cannot change:
-  - Authentication → Sign In / Providers → Email: **disable "Allow new users
-    to sign up"** (keep the Email provider enabled; invites and recovery need it).
-  - Authentication → URL Configuration: add `<APP_URL>/invite/**` and
-    `<APP_URL>/auth/callback` to the redirect URLs.
-- Set `NEXT_PUBLIC_APP_URL` to the deployed URL: invite links are built from
-  it (never from request headers).
-- Cron: the GitHub workflow calls `/api/cron/publish-due` and
-  `/api/cron/automation` every 5 minutes (`CRON_SECRET` repo secret,
-  `APP_URL` variable). Automation runs each business at most hourly and
-  catches up after missed triggers; `vercel.json` keeps daily backup calls.
+1. **Merge, back up, pause cron.** Merge the branch, take a database backup
+   (Dashboard → Database → Backups), and disable the GitHub workflow
+   `publish-cron` (Actions → publish-cron → Disable workflow). The daily
+   Vercel cron calls in `vercel.json` still fire; that is expected.
+
+2. **Pre-checks** (SQL editor). Each must pass, or be fixed, before step 3:
+
+   ```sql
+   -- (a) Must NOT be null. If it is, apply 20260921000000_org_meta_apps.sql first.
+   select to_regclass('public.organisation_meta_apps');
+
+   -- (b) No business with two owners (must return no rows).
+   select organisation_id, count(*) from public.organisation_members
+   where role = 'owner' group by organisation_id having count(*) > 1;
+
+   -- (c) No duplicate active jobs per content + account (must return no rows).
+   select content_id, social_account_id, count(*) from public.social_publish_jobs
+   where status in ('pending', 'ready', 'processing', 'retrying')
+   group by content_id, social_account_id having count(*) > 1;
+
+   -- (d) Businesses on autopilot: these WILL be downgraded (tell the owners).
+   select o.id, o.name, o.autopilot_mode, a.mode as automation_mode, ad.mode as ads_mode
+   from public.organisations o
+   left join public.automation_settings a on a.organisation_id = o.id
+   left join public.advertising_settings ad on ad.organisation_id = o.id
+   where o.autopilot_mode = 'autopilot' or a.mode = 'autopilot' or ad.mode = 'autopilot';
+
+   -- (e) Invite emails that would break the new CHECK: fix or delete them.
+   select id, email from public.organisation_invites
+   where position('@' in lower(btrim(email))) <= 1;
+
+   -- (f) No negative ad limits (must return no rows).
+   select organisation_id, daily_spend_limit_cents, max_active_campaigns
+   from public.advertising_settings
+   where daily_spend_limit_cents < 0 or max_active_campaigns < 0;
+   ```
+
+3. **Apply the migrations in filename order, one transaction per file.** Run
+   each file on its own. This matters most for the files that add enum values:
+   `20261014110000` adds `held` and `20261014130000` adds `uncertain`, and a
+   new enum value cannot be used in the transaction that adds it.
+   (`20261014120000` also adds `held` to `platform_publish_status`, which
+   that file does not use itself.)
+
+   1. `20261014090000_explicit_service_role_grants.sql`
+   2. `20261014100000_membership_roles_hardening.sql` (stops if (b) fails)
+   3. `20261014110000_publish_job_held_status.sql` (enum: run alone)
+   4. `20261014110100_publish_job_consistency.sql`
+   5. `20261014120000_account_identity_safety.sql`
+   6. `20261014130000_publish_job_uncertain_status.sql` (enum: run alone)
+   7. `20261014130100_publish_job_claims.sql`
+   8. `20261014140000_schedule_content_rpc.sql`
+   9. `20261014150000_material_edit_invalidates_approval.sql`
+   10. `20261014160000_uncertain_blocks_requeue.sql` (stops if a post/account
+       pair already has two processing/uncertain jobs)
+   11. `20261014170000_ads_execution_limits.sql`
+   12. `20261014180000_invites_accept.sql`
+
+   After `20261014180000`, scripts that insert members with the service role
+   (e.g. `scripts/seed-business-profiles-remote.mjs`) no longer work; people
+   join through invites.
+
+4. **Set `NEXT_PUBLIC_APP_URL`** to the production URL in Vercel and deploy
+   straight away. Invite links are built from it (never from request
+   headers), and production refuses to start building links without it.
+
+5. **Re-run the target backfill.** Jobs queued between the migration and the
+   deploy may have no target. Re-run the UPDATE from
+   `20261014120000_account_identity_safety.sql`:
+
+   ```sql
+   update public.social_publish_jobs j
+   set target_external_account_id = a.external_account_id
+   from public.social_accounts a
+   where a.id = j.social_account_id
+     and j.target_external_account_id is null
+     and j.status in ('pending', 'ready', 'retrying', 'processing', 'held', 'failed', 'expired');
+   ```
+
+6. **Dashboard (Authentication):**
+   - Sign In / Providers → Email: turn **off** "Allow new users to sign up".
+     Keep the Email provider **on**, because invites and password recovery
+     need it.
+   - URL Configuration: Site URL = `<APP_URL>`. Redirect URLs:
+     `<APP_URL>/auth/callback**` (wildcard, because password reset adds
+     `?next=`) and `<APP_URL>/invite/**`.
+   - SMTP Settings: configure custom SMTP. The built-in sender is heavily
+     rate-limited and not meant for production.
+
+7. **Review held and uncertain posts.** The migrations and new checks hold
+   some queued posts (no recorded target, edited after approval, content no
+   longer approved, account switched) and may mark interrupted ones
+   `uncertain`. Warn the operator before go-live that this will happen. Then
+   review them in Automation → Publishing and re-approve. For an `uncertain`
+   post, check the platform first and only confirm "not live" if it isn't
+   there.
+
+8. **Platform admin.** Make sure the operator's account has
+   `users.is_platform_admin = true` (it is the recovery path for ownership
+   and invites).
+
+9. **Re-enable cron.** Enable the `publish-cron` workflow again
+   (`CRON_SECRET` repo secret and `APP_URL` variable set). Automation runs
+   each business at most hourly, up to 5 per call, and catches up after
+   missed triggers.
+
+10. **Manual browser checklist (production):**
+    - [ ] Sign in.
+    - [ ] Forgot password → email → reset → sign in with the new password.
+    - [ ] Invite a new user (email arrives, they accept, they set a password).
+    - [ ] Invite an existing user; accept while signed in as the wrong
+      account is refused.
+    - [ ] Resend and revoke an invite.
+    - [ ] Make owner (transfer ownership).
+    - [ ] On approved content: an alt-text edit keeps it approved; a caption
+      edit sends it back to review and holds its queued posts.
+    - [ ] Schedule field shows the business time-zone label; pick a date near
+      a clock change and check the saved time.
+    - [ ] Publish now.
+    - [ ] The uncertain-retry confirmation appears and is required.
+    - [ ] Switching the Facebook Page / Instagram account shows the hold
+      message.
+    - [ ] The Spend limits form saves.
+    - [ ] One real publish to a dedicated test account.
 
 ## Remote Supabase
 
