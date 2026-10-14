@@ -1,15 +1,10 @@
+// Direct Data API isolation test with real anon-key user sessions.
+// LOCAL ONLY: reads .env.test and refuses any non-localhost Supabase URL.
+//   npm run db:start && npm run db:reset && npm run test:rls
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
+import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
 
-const env = Object.fromEntries(
-  readFileSync(".env.local", "utf8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((l) => {
-      const i = l.indexOf("=");
-      return [l.slice(0, i), l.slice(i + 1)];
-    })
-);
+const env = loadLocalTestEnv(".env.test");
 
 const url = env.NEXT_PUBLIC_SUPABASE_URL;
 const anon =
@@ -168,6 +163,17 @@ console.log(
   )
 );
 
+const passed =
+  (aSeesB?.length ?? 0) === 0 &&
+  (bSeesA?.length ?? 0) === 0 &&
+  Boolean(aIntoB) &&
+  stillB?.name === "Beta Cut" &&
+  (aOrgs?.length ?? 0) === 1 &&
+  (bOrgs?.length ?? 0) === 1 &&
+  (aSeesBMetrics?.length ?? 0) === 0;
+
 await admin.from("organisations").delete().in("id", [orgA, orgB]);
 await admin.auth.admin.deleteUser(userA.id);
 await admin.auth.admin.deleteUser(userB.id);
+
+if (!passed) process.exitCode = 1;

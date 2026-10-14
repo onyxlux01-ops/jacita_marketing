@@ -43,3 +43,5 @@ next-env.d.ts
 
 .vercel
 .env*
+# Local-only test environment (local Supabase defaults, no secrets)
+!.env.test

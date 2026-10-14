@@ -9,7 +9,7 @@
     "lint": "eslint",
     "db:start": "supabase start --ignore-health-check -x logflare,vector",
     "db:stop": "supabase stop",
-    "db:reset": "supabase db reset",
+    "db:reset": "supabase db reset --local",
     "db:status": "supabase status",
     "db:push:remote": "node scripts/apply-remote-migration.mjs",
     "test:publishing": "node scripts/publishing-reliability-unit.mjs",
@@ -18,7 +18,9 @@
     "check:social": "node scripts/check-social-config.mjs",
     "check:openai": "node --env-file=.env.local scripts/check-openai.mjs",
     "cleanup:test-artifacts": "node --env-file=.env.local scripts/cleanup-test-artifacts.mjs",
-    "verify:meta-live": "node --env-file=.env.local scripts/meta-live-verify.mjs"
+    "verify:meta-live": "node --env-file=.env.local scripts/meta-live-verify.mjs",
+    "test:integration": "node --import ./scripts/integration/register.mjs scripts/integration/run.mts",
+    "test:rls": "node scripts/rls-isolation-test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.58",
@@ -57,6 +59,7 @@
     "eslint-config-next": "16.3.4",
     "pg": "^8.23.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

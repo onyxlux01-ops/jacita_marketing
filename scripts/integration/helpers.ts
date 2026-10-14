@@ -1,0 +1,176 @@
+/**
+ * Fixtures for integration tests: real auth users with real RLS-bound
+ * sessions against the LOCAL Supabase stack, plus a service-role client for
+ * setup and assertions only (never for the behaviour under test).
+ */
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { randomBytes } from "node:crypto";
+import { assertLocalUrl } from "../lib/assert-local-db.mjs";
+import { itest } from "./state";
+
+const url = assertLocalUrl(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const noSession = { auth: { autoRefreshToken: false, persistSession: false } };
+
+/** Service-role client for fixture setup + assertions. */
+export const admin: SupabaseClient = createClient(url, serviceKey, noSession);
+
+export type TestUser = {
+  id: string;
+  email: string;
+  client: SupabaseClient;
+};
+
+const PASSWORD = `itest-${randomBytes(6).toString("hex")}`;
+const RUN = `${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
+
+export function uniq(label: string) {
+  return `${label}-${RUN}-${randomBytes(3).toString("hex")}`;
+}
+
+export async function createUser(label: string): Promise<TestUser> {
+  const email = `${uniq(label)}@itest.local`;
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: PASSWORD,
+    email_confirm: true,
+  });
+  if (error) throw error;
+  const client = createClient(url, anonKey, noSession);
+  const { error: signInError } = await client.auth.signInWithPassword({
+    email,
+    password: PASSWORD,
+  });
+  if (signInError) throw signInError;
+  return { id: data.user.id, email, client };
+}
+
+/** Make `user` the session that server actions see via createClient(). */
+export function actAs(user: TestUser | null) {
+  itest.userClient = user ? user.client : null;
+}
+
+export async function createOrg(owner: TestUser, label = "biz") {
+  const slug = uniq(label).toLowerCase();
+  const { data, error } = await owner.client.rpc("create_organisation", {
+    p_name: `Test ${label}`,
+    p_slug: slug,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Fixture shortcut: add a member with the service role (setup only). */
+export async function addMember(
+  orgId: string,
+  user: TestUser,
+  role: "manager" | "staff"
+) {
+  const { data, error } = await admin
+    .from("organisation_members")
+    .insert({ organisation_id: orgId, user_id: user.id, role })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+export async function membership(orgId: string, userId: string) {
+  const { data } = await admin
+    .from("organisation_members")
+    .select("id, role")
+    .eq("organisation_id", orgId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data as { id: string; role: string } | null;
+}
+
+/** Org with owner + manager + staff. */
+export async function teamOrg(label = "team") {
+  const owner = await createUser(`${label}-owner`);
+  const manager = await createUser(`${label}-manager`);
+  const staff = await createUser(`${label}-staff`);
+  const orgId = await createOrg(owner, label);
+  await addMember(orgId, manager, "manager");
+  await addMember(orgId, staff, "staff");
+  return { orgId, owner, manager, staff };
+}
+
+/**
+ * Mark a platform account as connected with a stored (encrypted) token, the
+ * way the OAuth callback would.
+ */
+export async function connectAccount(
+  orgId: string,
+  platform: "facebook" | "instagram" | "tiktok",
+  externalAccountId = `ext-${platform}-${randomBytes(3).toString("hex")}`,
+  metadata: Record<string, unknown> = {}
+) {
+  const { saveAccountSecrets } = await import("../../src/lib/social/secrets");
+  const { data, error } = await admin
+    .from("social_accounts")
+    .update({
+      connection_status: "connected",
+      health_status: "healthy",
+      external_account_id: externalAccountId,
+      account_name: `Acct ${platform}`,
+      metadata,
+    })
+    .eq("organisation_id", orgId)
+    .eq("platform", platform)
+    .select("id")
+    .single();
+  if (error) throw error;
+  await saveAccountSecrets({
+    socialAccountId: data.id,
+    organisationId: orgId,
+    token: { accessToken: `user-token-${platform}`, pageAccessToken: "page-token" },
+  });
+  return data.id as string;
+}
+
+/** Content row (+ platform rows) created by the service role. */
+export async function createContent(
+  orgId: string,
+  createdBy: string,
+  status: string,
+  platforms: Array<"facebook" | "instagram" | "tiktok"> = ["facebook"]
+) {
+  const { data, error } = await admin
+    .from("content")
+    .insert({
+      organisation_id: orgId,
+      title: uniq("post"),
+      caption: "Hello from the integration suite",
+      status,
+      created_by: createdBy,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  const platformIds: Record<string, string> = {};
+  for (const platform of platforms) {
+    const { data: cp, error: cpError } = await admin
+      .from("content_platforms")
+      .insert({ content_id: data.id, platform })
+      .select("id")
+      .single();
+    if (cpError) throw cpError;
+    platformIds[platform] = cp.id;
+  }
+  return { contentId: data.id as string, platformIds };
+}
+
+export async function jobsFor(contentId: string) {
+  const { data, error } = await admin
+    .from("social_publish_jobs")
+    .select("*")
+    .eq("content_id", contentId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data as Array<Record<string, unknown>>;
+}
