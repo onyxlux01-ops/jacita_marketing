@@ -13,41 +13,59 @@ import { basename, resolve } from "node:path";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
-function hostOf(raw, label) {
-  let parsed;
+/**
+ * This project's local stack ports (supabase/config.toml). They are NOT the
+ * Supabase defaults (54321/54322) on purpose: another project's stack may be
+ * running on the defaults on the same machine, and the guard refuses to talk
+ * to it.
+ */
+export const LOCAL_API_PORT = "55421";
+export const LOCAL_DB_PORT = "55422";
+
+function parse(raw, label) {
   try {
-    parsed = new URL(raw);
+    return new URL(raw);
   } catch {
     throw new Error(`[assert-local-db] ${label} is not a valid URL: ${raw}`);
   }
-  return parsed.hostname;
 }
 
-/** Throws unless `url` points at a local host. */
-export function assertLocalUrl(url, label = "Supabase URL") {
+/**
+ * Throws unless `url` points at a local host — and, when `expectedPort` is
+ * given, at this project's port on it.
+ */
+export function assertLocalUrl(url, label = "Supabase URL", expectedPort) {
   if (!url) {
     throw new Error(`[assert-local-db] ${label} is missing`);
   }
-  const host = hostOf(url, label);
+  const parsed = parse(url, label);
+  const host = parsed.hostname;
   if (!LOCAL_HOSTS.has(host)) {
     throw new Error(
       `[assert-local-db] Refusing to run: ${label} host is "${host}". ` +
         "Only 127.0.0.1 / localhost are allowed (local Supabase stack)."
     );
   }
+  if (expectedPort && parsed.port !== expectedPort) {
+    throw new Error(
+      `[assert-local-db] Refusing to run: ${label} port is "${parsed.port || "(default)"}", ` +
+        `expected ${expectedPort} (this project's stack in supabase/config.toml). ` +
+        "Another local Supabase project may be listening on the default ports."
+    );
+  }
   return url;
 }
 
 /**
- * Validate the Supabase-related variables in `env` (defaults to process.env).
- * Checks NEXT_PUBLIC_SUPABASE_URL, SUPABASE_URL and SUPABASE_DB_URL when set.
+ * Validate the Supabase-related variables in `env` (defaults to process.env):
+ * local host AND this project's ports.
  */
 export function assertLocalSupabaseEnv(env = process.env) {
   const apiUrl = env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL;
-  assertLocalUrl(apiUrl, "NEXT_PUBLIC_SUPABASE_URL");
-  if (env.SUPABASE_URL) assertLocalUrl(env.SUPABASE_URL, "SUPABASE_URL");
-  if (env.SUPABASE_DB_URL) assertLocalUrl(env.SUPABASE_DB_URL, "SUPABASE_DB_URL");
-  if (env.DATABASE_URL) assertLocalUrl(env.DATABASE_URL, "DATABASE_URL");
+  assertLocalUrl(apiUrl, "NEXT_PUBLIC_SUPABASE_URL", LOCAL_API_PORT);
+  if (env.SUPABASE_URL) assertLocalUrl(env.SUPABASE_URL, "SUPABASE_URL", LOCAL_API_PORT);
+  if (env.SUPABASE_DB_URL) assertLocalUrl(env.SUPABASE_DB_URL, "SUPABASE_DB_URL", LOCAL_DB_PORT);
+  if (env.DATABASE_URL) assertLocalUrl(env.DATABASE_URL, "DATABASE_URL", LOCAL_DB_PORT);
   return env;
 }
 
