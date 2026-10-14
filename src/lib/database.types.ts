@@ -2023,8 +2023,12 @@ export type Database = {
           expires_at: string
           id: string
           invited_by: string | null
+          last_sent_at: string | null
           organisation_id: string
+          revoked_at: string | null
+          revoked_by: string | null
           role: Database["public"]["Enums"]["org_role"]
+          send_count: number
           status: string
           token: string
           updated_at: string
@@ -2037,8 +2041,12 @@ export type Database = {
           expires_at: string
           id?: string
           invited_by?: string | null
+          last_sent_at?: string | null
           organisation_id: string
+          revoked_at?: string | null
+          revoked_by?: string | null
           role?: Database["public"]["Enums"]["org_role"]
+          send_count?: number
           status?: string
           token: string
           updated_at?: string
@@ -2051,8 +2059,12 @@ export type Database = {
           expires_at?: string
           id?: string
           invited_by?: string | null
+          last_sent_at?: string | null
           organisation_id?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
           role?: Database["public"]["Enums"]["org_role"]
+          send_count?: number
           status?: string
           token?: string
           updated_at?: string
@@ -2077,6 +2089,13 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organisation_invites_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -2772,6 +2791,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_invite: { Args: { p_invite_id: string }; Returns: Json }
       claim_advertising_action: {
         Args: { p_action_id: string; p_actor_user_id: string }
         Returns: Json
@@ -2837,6 +2857,10 @@ export type Database = {
           p_website?: string
         }
         Returns: string
+      }
+      is_member_by_email: {
+        Args: { p_email: string; p_organisation_id: string }
+        Returns: boolean
       }
       schedule_content: {
         Args: {

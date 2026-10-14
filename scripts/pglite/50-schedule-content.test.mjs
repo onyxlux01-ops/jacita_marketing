@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
-import { freshDb, asUser, newUser, rpcCreateOrg } from "./db.mjs";
+import { freshDb, asUser, newUser, rpcCreateOrg, fixtureQuery } from "./db.mjs";
 
 const db = await freshDb();
 const HASH = "v".repeat(32);
@@ -10,7 +10,7 @@ async function setup({ status = "approved", connect = ["facebook", "instagram"] 
   const owner = await newUser(db, "o");
   const staff = await newUser(db, "s");
   const org = await rpcCreateOrg(db, owner, "Sched");
-  await db.query(
+  await fixtureQuery(db,
     `insert into public.organisation_members (organisation_id,user_id,role) values ($1,$2,'staff')`,
     [org, staff]
   );

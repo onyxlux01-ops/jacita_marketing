@@ -12,7 +12,11 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      const redirectPath = next.startsWith("/") ? next : "/app"
+      // Same-site paths only ("//evil.example" is protocol-relative).
+      const redirectPath =
+        next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
+          ? next
+          : "/app"
       return NextResponse.redirect(`${origin}${redirectPath}`)
     }
   }

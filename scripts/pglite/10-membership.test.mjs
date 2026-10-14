@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freshDb, asUser, newUser, rpcCreateOrg, makePlatformAdmin } from "./db.mjs";
+import { freshDb, asUser, newUser, rpcCreateOrg, makePlatformAdmin, fixtureQuery } from "./db.mjs";
 
 const db = await freshDb();
 
@@ -9,7 +9,7 @@ async function setup() {
   const manager = await newUser(db, "manager");
   const staff = await newUser(db, "staff");
   const org = await rpcCreateOrg(db, owner, "Org");
-  await db.query(
+  await fixtureQuery(db,
     `insert into public.organisation_members (organisation_id, user_id, role) values ($1,$2,'manager'),($1,$3,'staff')`,
     [org, manager, staff]
   );

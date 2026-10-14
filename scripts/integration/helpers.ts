@@ -72,19 +72,35 @@ export async function createOrg(owner: TestUser, label = "biz") {
   return data as string;
 }
 
-/** Fixture shortcut: add a member with the service role (setup only). */
+/**
+ * Fixture shortcut: add a member (setup only). Members normally join only via
+ * accept_invite(); the fixture goes to the LOCAL Postgres (guarded) and sets
+ * the same transaction flag that RPC sets.
+ */
 export async function addMember(
   orgId: string,
   user: TestUser,
   role: "manager" | "staff"
 ) {
-  const { data, error } = await admin
-    .from("organisation_members")
-    .insert({ organisation_id: orgId, user_id: user.id, role })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return data.id as string;
+  const dbUrl = assertLocalUrl(process.env.SUPABASE_DB_URL!, "SUPABASE_DB_URL", LOCAL_DB_PORT);
+  const { default: pg } = await import("pg");
+  const client = new pg.Client({ connectionString: dbUrl });
+  await client.connect();
+  try {
+    await client.query("begin");
+    await client.query("select set_config('jacita.invite_accept', 'on', true)");
+    const r = await client.query(
+      "insert into public.organisation_members (organisation_id, user_id, role) values ($1, $2, $3) returning id",
+      [orgId, user.id, role]
+    );
+    await client.query("commit");
+    return r.rows[0].id as string;
+  } catch (e) {
+    await client.query("rollback").catch(() => {});
+    throw e;
+  } finally {
+    await client.end();
+  }
 }
 
 /**

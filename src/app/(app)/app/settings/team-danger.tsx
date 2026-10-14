@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   inviteTeamMember,
   removeTeamMember,
+  resendInvite,
   revokeInvite,
   transferOwnership,
   updateMemberRole,
@@ -222,23 +223,47 @@ export function TeamPanel({
               >
                 <span>
                   {inv.email} · {ORG_ROLE_LABELS[inv.role]}
+                  <span className="text-xs text-muted-foreground">
+                    {" "}
+                    · expires {new Date(inv.expires_at).toLocaleDateString()}
+                  </span>
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      await revokeInvite({
-                        organisationId,
-                        inviteId: inv.id,
+                <span className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={() => {
+                      startTransition(async () => {
+                        const res = await resendInvite({
+                          organisationId,
+                          inviteId: inv.id,
+                        });
+                        if ("error" in res && res.error) toast.error(res.error);
+                        else toast.success("Invite sent again");
                       });
-                      toast.success("Invite revoked");
-                    });
-                  }}
-                >
-                  Revoke
-                </Button>
+                    }}
+                  >
+                    Resend
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={() => {
+                      startTransition(async () => {
+                        const res = await revokeInvite({
+                          organisationId,
+                          inviteId: inv.id,
+                        });
+                        if ("error" in res && res.error) toast.error(res.error);
+                        else toast.success("Invite revoked");
+                      });
+                    }}
+                  >
+                    Revoke
+                  </Button>
+                </span>
               </li>
             ))}
           </ul>

@@ -9,6 +9,7 @@ import type { MarketingGoalKey } from "@/lib/ai/goals";
 import type { OnboardingStep } from "@/lib/org/setup-progress";
 import type { OrgRole } from "@/lib/database.types";
 import type { Json } from "@/lib/database.types";
+import { normaliseInviteEmail, sendInviteEmail } from "@/lib/team/invite-email";
 
 async function getAuthed() {
   if (!hasSupabaseEnv()) return { error: "Supabase is not configured" as const };
@@ -347,6 +348,30 @@ async function advanceOnboardingStep(
     .eq("id", organisationId);
 }
 
+/** Owner of this business, or a platform admin (the recovery path). */
+async function requireOwnerOrPlatformAdmin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  organisationId: string
+) {
+  const owner = await requireManage(supabase, userId, organisationId, ["owner"]);
+  if (owner) return { via: "owner" as const };
+  const { data: profile } = await supabase
+    .from("users")
+    .select("is_platform_admin")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profile?.is_platform_admin) return { via: "platform_admin" as const };
+  return null;
+}
+
+const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Invite someone to this business (owner or platform admin only). Records
+ * the invite and emails a link to /invite/<id>; the person joins only when
+ * they accept it there (accept_invite). Never as owner.
+ */
 export async function inviteTeamMember(input: {
   organisationId: string;
   email: string;
@@ -355,87 +380,60 @@ export async function inviteTeamMember(input: {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
 
-  const membership = await requireManage(
+  const allowed = await requireOwnerOrPlatformAdmin(
     auth.supabase,
     auth.user.id,
-    input.organisationId,
-    ["owner"]
+    input.organisationId
   );
-  if (!membership) return { error: "Only owners can invite team members" };
+  if (!allowed) return { error: "Only the owner can invite team members" };
 
-  const email = input.email.trim().toLowerCase();
-  if (!email.includes("@")) return { error: "Enter a valid email" };
+  const email = normaliseInviteEmail(input.email ?? "");
+  if (!email) return { error: "Enter a valid email" };
   if (input.role === "owner") {
     return {
       error:
         "A business has one owner. Invite them as a manager, then transfer ownership.",
     };
   }
-  if (!["manager", "staff"].includes(input.role)) {
+  if (input.role !== "manager" && input.role !== "staff") {
     return { error: "Invalid role" };
   }
 
-  const role: OrgRole = input.role;
-  const token = randomBytes(24).toString("hex");
-  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-
-  // Try to resolve existing auth user via service role (email lives on auth.users)
-  let existingUserId: string | null = null;
-  try {
-    const { createAdminClient } = await import("@/lib/supabase/admin");
-    const admin = createAdminClient();
-    const { data: listed } = await admin.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-    const match = listed.users.find(
-      (u) => u.email?.toLowerCase() === email
-    );
-    existingUserId = match?.id ?? null;
-  } catch {
-    existingUserId = null;
-  }
-
-  if (existingUserId) {
-    const { data: existingMember } = await auth.supabase
-      .from("organisation_members")
-      .select("id")
-      .eq("organisation_id", input.organisationId)
-      .eq("user_id", existingUserId)
-      .maybeSingle();
-    if (existingMember) return { error: "This user is already a member" };
-  }
-
-  const { error } = await auth.supabase.from("organisation_invites").insert({
-    organisation_id: input.organisationId,
-    email,
-    role,
-    invited_by: auth.user.id,
-    token,
-    status: "pending",
-    expires_at: expiresAt,
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const admin = createAdminClient();
+  const { data: alreadyMember } = await admin.rpc("is_member_by_email", {
+    p_organisation_id: input.organisationId,
+    p_email: email,
   });
+  if (alreadyMember === true) return { error: "This person is already a member" };
 
-  if (error) return { error: error.message };
+  // Written as the inviter: RLS lets only the owner / a platform admin insert.
+  const { data: invite, error } = await auth.supabase
+    .from("organisation_invites")
+    .insert({
+      organisation_id: input.organisationId,
+      email,
+      role: input.role,
+      invited_by: auth.user.id,
+      token: randomBytes(24).toString("hex"),
+      status: "pending",
+      expires_at: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "There is already a pending invite for this email. Resend it instead." };
+    }
+    return { error: error.message };
+  }
 
-  if (existingUserId) {
-    const { error: memberError } = await auth.supabase
-      .from("organisation_members")
-      .insert({
-        organisation_id: input.organisationId,
-        user_id: existingUserId,
-        role,
-      });
-    if (memberError) return { error: memberError.message };
-    const { error: acceptError } = await auth.supabase
+  const sent = await sendInviteEmail(email, invite.id);
+  if (sent.ok) {
+    await admin
       .from("organisation_invites")
-      .update({
-        status: "accepted",
-        accepted_at: new Date().toISOString(),
-        accepted_user_id: existingUserId,
-      })
-      .eq("token", token);
-    if (acceptError) return { error: acceptError.message };
+      .update({ last_sent_at: new Date().toISOString(), send_count: 1 })
+      .eq("id", invite.id);
   }
 
   await auth.supabase.from("audit_logs").insert({
@@ -443,17 +441,98 @@ export async function inviteTeamMember(input: {
     user_id: auth.user.id,
     action: "team.invited",
     entity_type: "organisation_invites",
-    metadata: { email, role },
+    entity_id: invite.id,
+    metadata: { email, role: input.role, via: allowed.via, email_sent: sent.ok },
   });
 
   revalidatePath("/app/settings");
+  if (!sent.ok) {
+    return {
+      error: `Invite saved, but the email could not be sent (${sent.error}). Use Resend to try again.`,
+      inviteId: invite.id as string,
+    };
+  }
   return {
-    success: true,
-    pending: !existingUserId,
-    message: existingUserId
-      ? "Member added"
-      : "Invite saved. They will be linked when they join with this email.",
+    success: true as const,
+    inviteId: invite.id as string,
+    message: `Invite sent to ${email}. They join when they accept it.`,
   };
+}
+
+/** Send a pending invite again (owner / platform admin); extends its expiry. */
+export async function resendInvite(input: {
+  organisationId: string;
+  inviteId: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+  const allowed = await requireOwnerOrPlatformAdmin(
+    auth.supabase,
+    auth.user.id,
+    input.organisationId
+  );
+  if (!allowed) return { error: "Only the owner can resend invites" };
+
+  const { data: invite } = await auth.supabase
+    .from("organisation_invites")
+    .select("id, email, status, send_count")
+    .eq("id", input.inviteId)
+    .eq("organisation_id", input.organisationId)
+    .maybeSingle();
+  if (!invite) return { error: "Invite not found" };
+  if (invite.status !== "pending") return { error: `This invite is ${invite.status}` };
+
+  const { data: updated, error } = await auth.supabase
+    .from("organisation_invites")
+    .update({ expires_at: new Date(Date.now() + INVITE_TTL_MS).toISOString() })
+    .eq("id", invite.id)
+    .eq("status", "pending")
+    .select("id");
+  if (error) return { error: error.message };
+  if (!updated?.length) return { error: "Invite could not be updated" };
+
+  const sent = await sendInviteEmail(invite.email, invite.id);
+  if (!sent.ok) return { error: `The email could not be sent: ${sent.error}` };
+  await auth.supabase
+    .from("organisation_invites")
+    .update({
+      last_sent_at: new Date().toISOString(),
+      send_count: (invite.send_count ?? 0) + 1,
+    })
+    .eq("id", invite.id);
+
+  await auth.supabase.from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: auth.user.id,
+    action: "team.invite_resent",
+    entity_type: "organisation_invites",
+    entity_id: invite.id,
+    metadata: { email: invite.email, via: allowed.via },
+  });
+  revalidatePath("/app/settings");
+  return { success: true as const };
+}
+
+/** Accept an invite as the signed-in user (see accept_invite). */
+export async function acceptInvite(inviteId: string) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+  const { data, error } = await auth.supabase.rpc("accept_invite", {
+    p_invite_id: inviteId,
+  });
+  if (error) return { error: error.message };
+  const result = data as unknown as
+    | { ok: true; organisation_id: string; role: OrgRole }
+    | { ok: false; code: string; error: string };
+  if (!result?.ok) {
+    return {
+      error: result?.error || "This invite could not be accepted",
+      code: result?.code,
+    };
+  }
+  await setActiveOrganisationCookie(result.organisation_id);
+  revalidatePath("/", "layout");
+  return { success: true as const, organisationId: result.organisation_id, role: result.role };
 }
 
 export async function updateMemberRole(input: {
@@ -609,19 +688,35 @@ export async function revokeInvite(input: {
 }) {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
-  const membership = await requireManage(
+  const allowed = await requireOwnerOrPlatformAdmin(
     auth.supabase,
     auth.user.id,
-    input.organisationId,
-    ["owner"]
+    input.organisationId
   );
-  if (!membership) return { error: "Only owners can revoke invites" };
+  if (!allowed) return { error: "Only the owner can revoke invites" };
 
-  await auth.supabase
+  const { data: revoked, error } = await auth.supabase
     .from("organisation_invites")
-    .update({ status: "revoked" })
+    .update({
+      status: "revoked",
+      revoked_at: new Date().toISOString(),
+      revoked_by: auth.user.id,
+    })
     .eq("id", input.inviteId)
-    .eq("organisation_id", input.organisationId);
+    .eq("organisation_id", input.organisationId)
+    .eq("status", "pending")
+    .select("id, email");
+  if (error) return { error: error.message };
+  if (!revoked?.length) return { error: "No pending invite to revoke" };
+
+  await auth.supabase.from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: auth.user.id,
+    action: "team.invite_revoked",
+    entity_type: "organisation_invites",
+    entity_id: input.inviteId,
+    metadata: { email: revoked[0].email, via: allowed.via },
+  });
 
   revalidatePath("/app/settings");
   return { success: true };

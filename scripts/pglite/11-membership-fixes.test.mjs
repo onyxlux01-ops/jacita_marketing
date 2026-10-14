@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freshDb, applyMigrations, asUser, newUser, rpcCreateOrg } from "./db.mjs";
+import { freshDb, applyMigrations, asUser, newUser, rpcCreateOrg, fixtureQuery } from "./db.mjs";
 
 const BEFORE_PR1 = "20260921000000_org_meta_apps.sql";
 
@@ -33,7 +33,7 @@ test("transfer flag is ignored in an untrusted (authenticated) session", async (
   const owner = await newUser(db, "o");
   const manager = await newUser(db, "m");
   const org = await rpcCreateOrg(db, owner, "Flag");
-  await db.query(
+  await fixtureQuery(db,
     `insert into public.organisation_members (organisation_id,user_id,role) values ($1,$2,'manager')`,
     [org, manager]
   );

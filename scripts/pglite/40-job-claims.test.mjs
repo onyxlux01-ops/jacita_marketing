@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freshDb, asUser, newUser, rpcCreateOrg } from "./db.mjs";
+import { freshDb, asUser, newUser, rpcCreateOrg, fixtureQuery } from "./db.mjs";
 
 const db = await freshDb();
 const TOKEN_A = "a".repeat(32);
@@ -10,7 +10,7 @@ async function setup(status = "pending") {
   const owner = await newUser(db, "o");
   const manager = await newUser(db, "m");
   const org = await rpcCreateOrg(db, owner, "Claims");
-  await db.query(
+  await fixtureQuery(db,
     `insert into public.organisation_members (organisation_id,user_id,role) values ($1,$2,'manager')`,
     [org, manager]
   );

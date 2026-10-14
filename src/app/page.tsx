@@ -40,21 +40,18 @@ export default function HomePage() {
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href="/signup"
+            href="/login"
             className="inline-flex h-11 items-center rounded-full bg-neutral-950 px-6 text-[15px] font-medium text-white transition-opacity hover:opacity-85"
           >
-            Start free
+            Sign in
             <span aria-hidden className="ml-1.5">
               →
             </span>
           </Link>
-          <Link
-            href="/login"
-            className="inline-flex h-11 items-center rounded-full border border-neutral-200 bg-white px-6 text-[15px] font-medium text-neutral-950 transition-colors hover:bg-neutral-50"
-          >
-            Sign in
-          </Link>
         </div>
+        <p className="mt-4 text-[13px] text-neutral-400">
+          Private client workspace. Access is by invitation.
+        </p>
       </div>
     </main>
   );

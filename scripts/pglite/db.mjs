@@ -95,3 +95,21 @@ export async function rpcCreateOrg(db, userId, name = "Org") {
     return r.rows[0].id;
   });
 }
+
+/**
+ * Fixture write that needs to bypass the "members join via accept_invite"
+ * guard: runs in a transaction with the accept_invite flag set, as the
+ * database owner (trusted), exactly like the RPC does.
+ */
+export async function fixtureQuery(db, sql, params = []) {
+  await db.exec("begin");
+  try {
+    await db.query(`select set_config('jacita.invite_accept', 'on', true)`);
+    const r = await db.query(sql, params);
+    await db.exec("commit");
+    return r;
+  } catch (e) {
+    await db.exec("rollback");
+    throw e;
+  }
+}

@@ -10,6 +10,13 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { createClient } from "@/lib/supabase/client"
 
+/** Only same-site paths ("/x", never "//host" or "/\host"). */
+function safeNext(next: string) {
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
+    ? next
+    : "/app"
+}
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -38,7 +45,7 @@ function LoginForm() {
       return
     }
 
-    router.push(next.startsWith("/") ? next : "/app")
+    router.push(safeNext(next))
     router.refresh()
   }
 
@@ -87,15 +94,17 @@ function LoginForm() {
         </Button>
       </form>
 
-      <p className="text-center text-sm text-muted-foreground">
-        New here?{" "}
-        <Link
-          href="/signup"
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Create an account
-        </Link>
-      </p>
+      <div className="space-y-2 text-center text-sm text-muted-foreground">
+        <p>
+          <Link
+            href="/forgot-password"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Forgot your password?
+          </Link>
+        </p>
+        <p>Access is by invitation only. Ask your business owner for an invite.</p>
+      </div>
     </>
   )
 }

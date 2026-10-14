@@ -49,7 +49,9 @@ export async function updateSession(request: NextRequest) {
 
   const isAppRoute = pathname.startsWith("/app")
   const isPlatformRoute = pathname.startsWith("/platform")
-  const isAuthPage = pathname === "/login" || pathname === "/signup"
+  // Signed-in users skip these. (/reset-password and /invite/* need a
+  // session, so they are not listed.)
+  const isAuthPage = pathname === "/login" || pathname === "/forgot-password"
 
   if ((isAppRoute || isPlatformRoute) && !user) {
     const url = request.nextUrl.clone()
