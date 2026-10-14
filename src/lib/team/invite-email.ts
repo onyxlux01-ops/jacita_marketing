@@ -16,6 +16,15 @@ export function normaliseInviteEmail(raw: string) {
  * The page an invite email links to. Built from the configured app URL
  * (never from request headers, so a spoofed Host cannot redirect invitees).
  */
+export function inviteLinksError(): string | null {
+  try {
+    getAppBaseUrl();
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : "The app URL is not configured";
+  }
+}
+
 export function inviteAcceptUrl(inviteId: string) {
   return `${getAppBaseUrl()}/invite/${inviteId}`;
 }

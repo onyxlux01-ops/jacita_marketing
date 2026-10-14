@@ -8,14 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { safeNextPath } from "@/lib/safe-next"
 import { createClient } from "@/lib/supabase/client"
-
-/** Only same-site paths ("/x", never "//host" or "/\host"). */
-function safeNext(next: string) {
-  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
-    ? next
-    : "/app"
-}
 
 function LoginForm() {
   const router = useRouter()
@@ -45,7 +39,7 @@ function LoginForm() {
       return
     }
 
-    router.push(safeNext(next))
+    router.push(safeNextPath(next, window.location.origin))
     router.refresh()
   }
 

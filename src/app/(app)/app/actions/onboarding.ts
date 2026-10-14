@@ -9,7 +9,11 @@ import type { MarketingGoalKey } from "@/lib/ai/goals";
 import type { OnboardingStep } from "@/lib/org/setup-progress";
 import type { OrgRole } from "@/lib/database.types";
 import type { Json } from "@/lib/database.types";
-import { normaliseInviteEmail, sendInviteEmail } from "@/lib/team/invite-email";
+import {
+  inviteLinksError,
+  normaliseInviteEmail,
+  sendInviteEmail,
+} from "@/lib/team/invite-email";
 
 async function getAuthed() {
   if (!hasSupabaseEnv()) return { error: "Supabase is not configured" as const };
@@ -386,6 +390,9 @@ export async function inviteTeamMember(input: {
     input.organisationId
   );
   if (!allowed) return { error: "Only the owner can invite team members" };
+  // Fail before recording anything if links cannot be built.
+  const linksError = inviteLinksError();
+  if (linksError) return { error: `Invites are not configured: ${linksError}` };
 
   const email = normaliseInviteEmail(input.email ?? "");
   if (!email) return { error: "Enter a valid email" };
@@ -472,6 +479,8 @@ export async function resendInvite(input: {
     input.organisationId
   );
   if (!allowed) return { error: "Only the owner can resend invites" };
+  const linksError = inviteLinksError();
+  if (linksError) return { error: `Invites are not configured: ${linksError}` };
 
   const { data: invite } = await auth.supabase
     .from("organisation_invites")

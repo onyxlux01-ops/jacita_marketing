@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { safeNextPath } from "@/lib/safe-next"
 import { createClient } from "@/lib/supabase/server"
 
 export async function GET(request: Request) {
@@ -12,11 +13,8 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Same-site paths only ("//evil.example" is protocol-relative).
-      const redirectPath =
-        next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
-          ? next
-          : "/app"
+      // Same-origin paths only (see safeNextPath for the tricky cases).
+      const redirectPath = safeNextPath(next, origin)
       return NextResponse.redirect(`${origin}${redirectPath}`)
     }
   }

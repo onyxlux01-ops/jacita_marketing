@@ -260,3 +260,32 @@ test("access: password recovery sends a reset email", async () => {
   assert.equal(subjects.length, 1);
   assert.match(subjects[0], /reset/i);
 });
+
+test("config: production refuses to build links without NEXT_PUBLIC_APP_URL", async () => {
+  const { getAppBaseUrl } = await import("../../../src/lib/social/oauth-state");
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { node: env.NODE_ENV, url: env.NEXT_PUBLIC_APP_URL };
+  try {
+    env.NODE_ENV = "production";
+    delete env.NEXT_PUBLIC_APP_URL;
+    assert.throws(() => getAppBaseUrl(), /NEXT_PUBLIC_APP_URL/);
+
+    // An invite is refused up front, before anything is recorded.
+    const { orgId, owner } = await teamOrg("inv-nourl");
+    const res = await invite(owner, orgId, `${uniq("nourl")}@itest.local`);
+    assert.match(String(res.error), /not configured/);
+    const { count } = await admin
+      .from("organisation_invites")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId);
+    assert.equal(count, 0);
+
+    env.NEXT_PUBLIC_APP_URL = "https://app.example.com/";
+    assert.equal(getAppBaseUrl(), "https://app.example.com");
+  } finally {
+    env.NODE_ENV = saved.node;
+    if (saved.url === undefined) delete env.NEXT_PUBLIC_APP_URL;
+    else env.NEXT_PUBLIC_APP_URL = saved.url;
+  }
+  assert.equal(getAppBaseUrl(), "http://localhost:3000");
+});

@@ -77,12 +77,19 @@ export function oauthStateMetaAppId(state: { metadata: unknown }) {
   return typeof meta.meta_app_id === "string" ? meta.meta_app_id : null;
 }
 
+/**
+ * The app's public URL (invite links, OAuth fallback). In production it must
+ * be configured: falling back to localhost would email broken links (or, via
+ * headers, links to a spoofed host), so a missing value is an error.
+ */
 export function getAppBaseUrl() {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    "http://localhost:3000"
-  ).replace(/\/$/, "");
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (!configured && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "NEXT_PUBLIC_APP_URL is not set. Set it to the deployed URL (e.g. https://app.example.com)."
+    );
+  }
+  return (configured || process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
 /**
