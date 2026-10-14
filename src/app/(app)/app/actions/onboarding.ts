@@ -365,11 +365,17 @@ export async function inviteTeamMember(input: {
 
   const email = input.email.trim().toLowerCase();
   if (!email.includes("@")) return { error: "Enter a valid email" };
-  if (!["manager", "staff", "owner"].includes(input.role)) {
+  if (input.role === "owner") {
+    return {
+      error:
+        "A business has one owner. Invite them as a manager, then transfer ownership.",
+    };
+  }
+  if (!["manager", "staff"].includes(input.role)) {
     return { error: "Invalid role" };
   }
 
-  const role: OrgRole = input.role === "owner" ? "manager" : input.role;
+  const role: OrgRole = input.role;
   const token = randomBytes(24).toString("hex");
   const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -413,12 +419,15 @@ export async function inviteTeamMember(input: {
   if (error) return { error: error.message };
 
   if (existingUserId) {
-    await auth.supabase.from("organisation_members").insert({
-      organisation_id: input.organisationId,
-      user_id: existingUserId,
-      role,
-    });
-    await auth.supabase
+    const { error: memberError } = await auth.supabase
+      .from("organisation_members")
+      .insert({
+        organisation_id: input.organisationId,
+        user_id: existingUserId,
+        role,
+      });
+    if (memberError) return { error: memberError.message };
+    const { error: acceptError } = await auth.supabase
       .from("organisation_invites")
       .update({
         status: "accepted",
@@ -426,6 +435,7 @@ export async function inviteTeamMember(input: {
         accepted_user_id: existingUserId,
       })
       .eq("token", token);
+    if (acceptError) return { error: acceptError.message };
   }
 
   await auth.supabase.from("audit_logs").insert({
@@ -473,17 +483,70 @@ export async function updateMemberRole(input: {
   if (target.user_id === auth.user.id) {
     return { error: "You cannot change your own role" };
   }
-  if (target.role === "owner") {
-    return { error: "Cannot change another owner's role here" };
+  if (target.role === "owner" || input.role === "owner") {
+    return { error: "Ownership can only change through Transfer ownership." };
+  }
+  if (!["manager", "staff"].includes(input.role)) {
+    return { error: "Invalid role" };
   }
 
-  const { error } = await auth.supabase
+  // RLS (owner/platform admin only) and the organisation_members guard
+  // trigger enforce the same rules for direct Data API calls.
+  const { data: updated, error } = await auth.supabase
     .from("organisation_members")
-    .update({ role: input.role === "owner" ? "manager" : input.role })
-    .eq("id", input.membershipId);
+    .update({ role: input.role })
+    .eq("id", input.membershipId)
+    .eq("organisation_id", input.organisationId)
+    .select("id");
+
+  if (error) return { error: error.message };
+  if (!updated?.length) return { error: "Role was not changed" };
+
+  await auth.supabase.from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: auth.user.id,
+    action: "team.role_changed",
+    entity_type: "organisation_members",
+    entity_id: input.membershipId,
+    metadata: { from: target.role, to: input.role, user_id: target.user_id },
+  });
+
+  revalidatePath("/app/settings");
+  return { success: true };
+}
+
+/**
+ * Hand the business to another existing member; the current owner becomes a
+ * manager. Goes through the transfer_ownership RPC (current owner or platform
+ * admin only), which is the only path the database allows for owner changes.
+ */
+export async function transferOwnership(input: {
+  organisationId: string;
+  membershipId: string;
+}) {
+  const auth = await getAuthed();
+  if ("error" in auth) return { error: auth.error };
+
+  const { data: target } = await auth.supabase
+    .from("organisation_members")
+    .select("id, role, user_id")
+    .eq("id", input.membershipId)
+    .eq("organisation_id", input.organisationId)
+    .maybeSingle();
+
+  if (!target) return { error: "Member not found" };
+  if (target.user_id === auth.user.id) {
+    return { error: "You are already the owner" };
+  }
+
+  const { error } = await auth.supabase.rpc("transfer_ownership", {
+    p_organisation_id: input.organisationId,
+    p_new_owner_user_id: target.user_id,
+  });
 
   if (error) return { error: error.message };
   revalidatePath("/app/settings");
+  revalidatePath("/app", "layout");
   return { success: true };
 }
 
@@ -514,16 +577,28 @@ export async function removeTeamMember(input: {
     return { error: "You cannot remove yourself" };
   }
   if (target.role === "owner") {
-    return { error: "Cannot remove another owner" };
+    return { error: "The owner cannot be removed. Transfer ownership first." };
   }
 
-  const { error } = await auth.supabase
+  const { data: removed, error } = await auth.supabase
     .from("organisation_members")
     .delete()
     .eq("id", input.membershipId)
-    .eq("organisation_id", input.organisationId);
+    .eq("organisation_id", input.organisationId)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!removed?.length) return { error: "Member was not removed" };
+
+  await auth.supabase.from("audit_logs").insert({
+    organisation_id: input.organisationId,
+    user_id: auth.user.id,
+    action: "team.member_removed",
+    entity_type: "organisation_members",
+    entity_id: input.membershipId,
+    metadata: { role: target.role, user_id: target.user_id },
+  });
+
   revalidatePath("/app/settings");
   return { success: true };
 }

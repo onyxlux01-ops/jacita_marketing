@@ -6,6 +6,7 @@ import {
   inviteTeamMember,
   removeTeamMember,
   revokeInvite,
+  transferOwnership,
   updateMemberRole,
   deleteOrganisation,
 } from "@/app/(app)/app/actions/onboarding";
@@ -131,6 +132,30 @@ export function TeamPanel({
                   }}
                 >
                   Remove
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Make ${m.full_name || "this member"} the owner?\n\nYou will become a manager. Only the new owner can undo this.`
+                      )
+                    ) {
+                      return;
+                    }
+                    startTransition(async () => {
+                      const res = await transferOwnership({
+                        organisationId,
+                        membershipId: m.id,
+                      });
+                      if (res.error) toast.error(res.error);
+                      else toast.success("Ownership transferred");
+                    });
+                  }}
+                >
+                  Make owner
                 </Button>
               </div>
             ) : null}

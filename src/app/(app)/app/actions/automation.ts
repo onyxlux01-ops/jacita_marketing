@@ -88,6 +88,11 @@ export async function saveAutomationSettings(input: {
     return { error: "Only owners and managers can change automation" };
   }
 
+  // Autopilot is refused server-side for now (also enforced by a DB trigger).
+  if (input.mode === "autopilot") {
+    return { error: "Autopilot is not available yet. Use Approval mode." };
+  }
+
   const admin = createAdminClient();
   await ensureAutomationSettings(admin, input.organisationId);
 
@@ -146,10 +151,11 @@ export async function saveAutomationSettings(input: {
   if (error) return { error: error.message };
 
   if (input.mode && input.mode !== "off") {
-    await auth.supabase
+    const { error: orgError } = await auth.supabase
       .from("organisations")
       .update({ autopilot_mode: modeToOrgAutopilot(input.mode) })
       .eq("id", input.organisationId);
+    if (orgError) return { error: orgError.message };
   }
 
   revalidateAutomation();

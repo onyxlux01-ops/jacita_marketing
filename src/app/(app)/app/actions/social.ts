@@ -213,31 +213,40 @@ export async function updateAutopilotMode(input: {
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  if (!membership || membership.role !== "owner") {
-    return { error: "Only owners can change publishing mode" };
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
+    return { error: "Only owners and managers can change publishing mode" };
   }
 
-  const { error } = await auth.supabase
+  // Autopilot is refused server-side for now (also enforced by a DB trigger).
+  if (input.mode === "autopilot") {
+    return { error: "Autopilot is not available yet. Use Approval mode." };
+  }
+  if (input.mode !== "manual" && input.mode !== "approval_required") {
+    return { error: "Invalid publishing mode" };
+  }
+
+  const { data: updatedOrg, error } = await auth.supabase
     .from("organisations")
     .update({ autopilot_mode: input.mode })
-    .eq("id", input.organisationId);
+    .eq("id", input.organisationId)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!updatedOrg?.length) return { error: "Publishing mode was not changed" };
 
   const automationMode =
-    input.mode === "autopilot"
-      ? "autopilot"
-      : input.mode === "approval_required"
-        ? "approval"
-        : "manual";
+    input.mode === "approval_required" ? "approval" : "manual";
 
-  await auth.supabase.from("automation_settings").upsert({
-    organisation_id: input.organisationId,
-    mode: automationMode,
-    enabled: true,
-    paused: false,
-    current_state: "completed",
-  });
+  const { error: settingsError } = await auth.supabase
+    .from("automation_settings")
+    .upsert({
+      organisation_id: input.organisationId,
+      mode: automationMode,
+      enabled: true,
+      paused: false,
+      current_state: "completed",
+    });
+  if (settingsError) return { error: settingsError.message };
 
   revalidatePath("/app/settings");
   revalidatePath("/app/social");

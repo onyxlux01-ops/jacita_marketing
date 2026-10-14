@@ -29,7 +29,12 @@ export function PublishingModePanel({
     });
   }
 
-  const options: Array<{ id: Mode; title: string; desc: string }> = [
+  const options: Array<{
+    id: Mode;
+    title: string;
+    desc: string;
+    unavailable?: boolean;
+  }> = [
     {
       id: "manual",
       title: "Manual",
@@ -43,7 +48,8 @@ export function PublishingModePanel({
     {
       id: "autopilot",
       title: "Autopilot",
-      desc: "AI creates, schedules, and publishes within your guardrails.",
+      desc: "Not available yet. Posts always need your approval for now.",
+      unavailable: true,
     },
   ];
 
@@ -75,10 +81,10 @@ export function PublishingModePanel({
               type="button"
               size="sm"
               variant={mode === opt.id ? "default" : "outline"}
-              disabled={pending}
+              disabled={pending || opt.unavailable}
               onClick={() => setMode(opt.id)}
             >
-              {mode === opt.id ? "Active" : "Use"}
+              {opt.unavailable ? "Coming soon" : mode === opt.id ? "Active" : "Use"}
             </Button>
           </div>
         ))}

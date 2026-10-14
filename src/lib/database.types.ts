@@ -2702,6 +2702,13 @@ export type Database = {
         }
         Returns: string
       }
+      transfer_ownership: {
+        Args: {
+          p_organisation_id: string
+          p_new_owner_user_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       ai_generation_status: "success" | "fallback" | "failed"
