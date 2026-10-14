@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withAiRoute } from "@/lib/ai/spend";
 import {
   FLYER_FORMATS,
   FLYER_MEDIA_MODES,
@@ -25,7 +26,7 @@ function userFacingError(error: string) {
   return error || "Flyer generation failed. Please try again.";
 }
 
-export async function POST(request: Request) {
+export const POST = withAiRoute("flyer", async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       organisation_id?: string;
@@ -288,4 +289,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

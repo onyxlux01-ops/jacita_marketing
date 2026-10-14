@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withAiRoute } from "@/lib/ai/spend";
 import {
   generateContentPackage,
   getBusinessContext,
@@ -17,7 +18,7 @@ function userFacingError(error: string) {
   return "Content generation failed. Please try again.";
 }
 
-export async function POST(request: Request) {
+export const POST = withAiRoute("studio", async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       organisation_id?: string;
@@ -129,4 +130,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

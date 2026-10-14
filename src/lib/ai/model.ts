@@ -1,6 +1,7 @@
-import { generateText, Output } from "ai";
+import { Output } from "ai";
 import { openai } from "@ai-sdk/openai";
 import type { z } from "zod";
+import { guardedGenerateText as generateText, isAiSpendError } from "@/lib/ai/spend";
 
 export function hasOpenAIKey() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
@@ -132,6 +133,9 @@ export async function runStructured<T>(options: {
       model: "gpt-5-mini",
     };
   } catch (error) {
+    // Budget / cap / concurrency refusals are not provider failures: never
+    // hide them behind demo content.
+    if (isAiSpendError(error)) throw error;
     const classified = classifyOpenAiError(error);
     return {
       ok: true,
@@ -188,6 +192,15 @@ export async function getAiProviderHealth(): Promise<AiProviderHealth> {
       message: "OpenAI is live for automation (gpt-5-mini).",
     };
   } catch (error) {
+    if (isAiSpendError(error)) {
+      return {
+        configured: true,
+        live: false,
+        model: "gpt-5-mini",
+        reason: null,
+        message: `Live check skipped: ${error.message}`,
+      };
+    }
     const classified = classifyOpenAiError(error);
     return {
       configured: true,

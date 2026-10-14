@@ -337,6 +337,109 @@ export type Database = {
           },
         ]
       }
+      ai_settings: {
+        Row: {
+          created_at: string
+          daily_image_cap: number
+          monthly_budget_pence: number
+          organisation_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          daily_image_cap?: number
+          monthly_budget_pence?: number
+          organisation_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          daily_image_cap?: number
+          monthly_budget_pence?: number
+          organisation_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_settings_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_usage: {
+        Row: {
+          actual_cost_pence: number | null
+          attempt: number
+          created_at: string
+          error_code: string | null
+          estimated_cost_pence: number
+          id: string
+          image_count: number
+          input_tokens: number | null
+          model: string
+          organisation_id: string
+          output_tokens: number | null
+          provider: string
+          request_id: string | null
+          settled_at: string | null
+          status: string
+          task: string
+          user_id: string | null
+        }
+        Insert: {
+          actual_cost_pence?: number | null
+          attempt?: number
+          created_at?: string
+          error_code?: string | null
+          estimated_cost_pence: number
+          id?: string
+          image_count?: number
+          input_tokens?: number | null
+          model: string
+          organisation_id: string
+          output_tokens?: number | null
+          provider: string
+          request_id?: string | null
+          settled_at?: string | null
+          status?: string
+          task: string
+          user_id?: string | null
+        }
+        Update: {
+          actual_cost_pence?: number | null
+          attempt?: number
+          created_at?: string
+          error_code?: string | null
+          estimated_cost_pence?: number
+          id?: string
+          image_count?: number
+          input_tokens?: number | null
+          model?: string
+          organisation_id?: string
+          output_tokens?: number | null
+          provider?: string
+          request_id?: string | null
+          settled_at?: string | null
+          status?: string
+          task?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analytics_metrics: {
         Row: {
           bookings: number
@@ -2795,6 +2898,11 @@ export type Database = {
     }
     Functions: {
       accept_invite: { Args: { p_invite_id: string }; Returns: Json }
+      ai_spend_summary: { Args: { p_organisation_id: string }; Returns: Json }
+      ai_spend_totals: {
+        Args: { p_at?: string; p_organisation_id: string }
+        Returns: Json
+      }
       claim_advertising_action: {
         Args: { p_action_id: string; p_actor_user_id: string }
         Returns: Json
@@ -2846,6 +2954,16 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      commit_ai_spend: {
+        Args: {
+          p_actual_pence: number
+          p_error_code?: string
+          p_input_tokens: number
+          p_output_tokens: number
+          p_usage_id: string
+        }
+        Returns: boolean
+      }
       create_organisation: {
         Args: {
           p_booking_url?: string
@@ -2872,6 +2990,25 @@ export type Database = {
           p_min_age?: string
           p_note?: string
           p_outcome: string
+        }
+        Returns: Json
+      }
+      release_ai_spend: {
+        Args: { p_error_code?: string; p_usage_id: string }
+        Returns: boolean
+      }
+      reserve_ai_spend: {
+        Args: {
+          p_attempt: number
+          p_estimated_pence: number
+          p_image_count: number
+          p_max_inflight_per_user: number
+          p_model: string
+          p_organisation_id: string
+          p_provider: string
+          p_request_id: string
+          p_task: string
+          p_user_id: string
         }
         Returns: Json
       }

@@ -27,6 +27,7 @@ import {
 } from "@/lib/automation/guardrails";
 import { freedomGuidance } from "@/lib/automation/control";
 import { notifyAutomationIssue } from "@/lib/automation/notify";
+import { checkAiHeadroom, isAiSpendError, runWithAiSpend } from "@/lib/ai/spend";
 import type { Json } from "@/lib/database.types";
 import type { SocialPlatform } from "@/lib/types";
 import type { AiFreedomLevel } from "@/lib/automation/settings";
@@ -142,15 +143,32 @@ function pickPlatform(platforms: string[], index: number): SocialPlatform {
   return allowed[index % allowed.length];
 }
 
-/**
- * Full autopilot loop for one organisation.
- * AI decides → structured actions → server validation → execute → log.
- */
-export async function runAutomationForOrganisation(input: {
+type RunAutomationInput = {
   organisationId: string;
   trigger?: "cron" | "manual" | "start" | "resume";
   actorUserId?: string | null;
-}) {
+};
+
+/**
+ * Full autopilot loop for one organisation.
+ * AI decides → structured actions → server validation → execute → log.
+ *
+ * Every AI call in the run is charged to this business (AI spend guard). A
+ * business without budget headroom is skipped (and the skip recorded); a
+ * refusal mid-run stops the run with code AI_BUDGET_EXCEEDED.
+ */
+export async function runAutomationForOrganisation(input: RunAutomationInput) {
+  return runWithAiSpend(
+    {
+      task: "automation",
+      organisationId: input.organisationId,
+      userId: input.actorUserId ?? null,
+    },
+    () => runAutomationInSpendContext(input)
+  );
+}
+
+async function runAutomationInSpendContext(input: RunAutomationInput) {
   const admin = createAdminClient();
   const organisationId = input.organisationId;
   const trigger = input.trigger ?? "cron";
@@ -180,6 +198,28 @@ export async function runAutomationForOrganisation(input: {
   const quiet = settings.quiet_hours as { start?: string; end?: string };
   if (trigger === "cron" && isQuietHour(quiet)) {
     return { skipped: true, reason: "quiet_hours", organisationId };
+  }
+
+  const aiRefusal = await checkAiHeadroom(organisationId);
+  if (aiRefusal) {
+    await logAutomationActivity(admin, {
+      organisationId,
+      eventType: "ai_budget_skipped",
+      message: aiRefusal.message.slice(0, 240),
+      severity: "warning",
+      metadata: { code: aiRefusal.code, trigger, ...aiRefusal.details } as Json,
+    });
+    await admin
+      .from("automation_settings")
+      .update({ last_error: aiRefusal.message.slice(0, 500) })
+      .eq("organisation_id", organisationId);
+    return {
+      skipped: true,
+      reason: "ai_budget",
+      code: aiRefusal.code,
+      error: aiRefusal.message,
+      organisationId,
+    };
   }
 
   const actorId =
@@ -312,6 +352,7 @@ export async function runAutomationForOrganisation(input: {
       }
       if (analysisTask) await completeTask(admin, analysisTask, "completed", { learningNote });
     } catch (e) {
+      if (isAiSpendError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Analysis failed";
       errors.push(msg);
       if (analysisTask) await completeTask(admin, analysisTask, "failed", {}, msg);
@@ -415,6 +456,7 @@ export async function runAutomationForOrganisation(input: {
         });
       }
     } catch (e) {
+      if (isAiSpendError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Strategy failed";
       errors.push(msg);
       if (strategyTask) await completeTask(admin, strategyTask, "failed", {}, msg);
@@ -739,6 +781,7 @@ export async function runAutomationForOrganisation(input: {
           }
           actionsTaken += 1;
         } catch (e) {
+          if (isAiSpendError(e)) throw e;
           const msg = e instanceof Error ? e.message : "Generation failed";
           errors.push(msg);
           if (taskId) await completeTask(admin, taskId, "failed", {}, msg);
@@ -886,6 +929,7 @@ export async function runAutomationForOrganisation(input: {
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Automation failed";
+    const aiCode = isAiSpendError(e) ? e.code : null;
     await setAutomationState(admin, organisationId, "error", message);
     await admin
       .from("automation_runs")
@@ -904,16 +948,23 @@ export async function runAutomationForOrganisation(input: {
     await logAutomationActivity(admin, {
       organisationId,
       runId,
-      eventType: "run_failed",
-      message,
-      severity: "error",
+      eventType: aiCode ? "ai_budget_stopped" : "run_failed",
+      message: message.slice(0, 240),
+      severity: aiCode ? "warning" : "error",
+      metadata: aiCode ? { code: aiCode } : {},
     });
     await notifyAutomationIssue({
       organisationId,
       title: "Automation failed",
       body: message.slice(0, 280),
     });
-    return { organisationId, runId, error: message, actionsTaken };
+    return {
+      organisationId,
+      runId,
+      error: message,
+      ...(aiCode ? { code: aiCode } : {}),
+      actionsTaken,
+    };
   }
 }
 

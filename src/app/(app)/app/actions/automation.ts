@@ -216,6 +216,17 @@ export async function pauseAutomation(organisationId: string) {
   return { success: true };
 }
 
+/**
+ * Typed AI-limit refusal from an automation run (AI_BUDGET_EXCEEDED etc.),
+ * or null when the run was not stopped by an AI limit.
+ */
+function aiLimitOf(result: unknown): { code: string; message: string } | null {
+  const r = result as { code?: unknown; error?: unknown } | null;
+  return r && typeof r.code === "string" && r.code.startsWith("AI_")
+    ? { code: r.code, message: String(r.error ?? "AI limit reached") }
+    : null;
+}
+
 export async function resumeAutomation(organisationId: string) {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
@@ -238,7 +249,7 @@ export async function resumeAutomation(organisationId: string) {
   });
 
   revalidateAutomation();
-  return { success: true, result };
+  return { success: true, result, aiLimit: aiLimitOf(result) };
 }
 
 export async function emergencyStopAutomation(organisationId: string) {
@@ -356,7 +367,7 @@ export async function startAutomation(input: {
   });
 
   revalidateAutomation();
-  return { success: true, result, readiness };
+  return { success: true, result, readiness, aiLimit: aiLimitOf(result) };
 }
 
 export async function runAutomationNow(organisationId: string) {
@@ -373,6 +384,8 @@ export async function runAutomationNow(organisationId: string) {
   });
 
   revalidateAutomation();
+  const aiLimit = aiLimitOf(result);
+  if (aiLimit) return { error: aiLimit.message, code: aiLimit.code };
   return { success: true, result };
 }
 

@@ -17,6 +17,11 @@ export type MetaFetchHandler = (
   searchParams: Record<string, string | undefined>
 ) => unknown;
 
+export type AiCall = { kind: "text" | "image"; modelId: string };
+
+/** Mocked OpenAI text reply (JSON text + reported token usage). */
+export type AiTextReply = { text: string; inputTokens?: number; outputTokens?: number };
+
 type State = {
   /** Client used by the mocked `@/lib/supabase/server` createClient(). */
   userClient: SupabaseClient | null;
@@ -29,6 +34,14 @@ type State = {
   publishDelayMs: number;
   /** When set, adapter.publish() throws this message AFTER recording the call. */
   publishError: string | null;
+  /** Every call that reached the mocked OpenAI provider (@ai-sdk/openai). */
+  aiCalls: AiCall[];
+  /** Text reply; null = the mock answers with an HTTP 503 (not charged). */
+  aiText: (() => AiTextReply) | null;
+  /** When set, every mocked AI call fails with this HTTP status. */
+  aiFail: { status: number; retryable: boolean } | null;
+  /** Simulated provider latency (ms), to make concurrent calls overlap. */
+  aiDelayMs: number;
 };
 
 const g = globalThis as unknown as { __jacitaItest?: State };
@@ -42,6 +55,10 @@ export const itest: State =
     postCounter: 0,
     publishDelayMs: 0,
     publishError: null,
+    aiCalls: [],
+    aiText: null,
+    aiFail: null,
+    aiDelayMs: 0,
   });
 
 export function resetProviders() {
@@ -49,4 +66,8 @@ export function resetProviders() {
   itest.metaFetch = null;
   itest.publishDelayMs = 0;
   itest.publishError = null;
+  itest.aiCalls.length = 0;
+  itest.aiText = null;
+  itest.aiFail = null;
+  itest.aiDelayMs = 0;
 }

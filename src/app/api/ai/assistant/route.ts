@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withAiRoute } from "@/lib/ai/spend";
 import {
   getBusinessContext,
   interpretAssistantRequest,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/ai";
 import { createClient } from "@/lib/supabase/server";
 
-export async function POST(request: Request) {
+export const POST = withAiRoute("assistant", async function POST(request: Request) {
   const body = (await request.json()) as {
     organisation_id?: string;
     request_text?: string;
@@ -81,4 +82,4 @@ export async function POST(request: Request) {
       gaps: context.gaps,
     },
   });
-}
+});

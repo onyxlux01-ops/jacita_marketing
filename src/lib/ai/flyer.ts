@@ -1,4 +1,4 @@
-import { generateImage } from "ai";
+import { guardedGenerateImage as generateImage } from "@/lib/ai/spend";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { BusinessContext } from "@/lib/ai/context";

@@ -27,7 +27,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { SocialPlatform } from "@/lib/types";
 import { MARKETING_GOALS, mapLegacyObjective } from "@/lib/ai/goals";
-import { ACTION_LABELS, type RewriteAction } from "@/lib/ai/rewrite";
+import { ACTION_LABELS, type RewriteAction } from "@/lib/ai/rewrite-shared";
 import { cn } from "@/lib/utils";
 
 const AI = "__ai__";

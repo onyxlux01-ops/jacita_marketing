@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withAiRoute } from "@/lib/ai/spend";
 import {
   getBusinessContext,
   recordAiGeneration,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/ai";
 import { createClient } from "@/lib/supabase/server";
 
-export async function POST(request: Request) {
+export const POST = withAiRoute("studio_transform", async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       organisation_id?: string;
@@ -161,4 +162,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});
