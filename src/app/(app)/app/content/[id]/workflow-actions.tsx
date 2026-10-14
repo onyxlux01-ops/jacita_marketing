@@ -7,6 +7,13 @@ import { scheduleContentPublishing } from "@/app/(app)/app/actions/social";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  formatInTimeZone,
+  fromZonedInputValue,
+  normaliseTimeZone,
+  timeZoneLabel,
+  toZonedInputValue,
+} from "@/lib/timezone";
 import { CONTENT_STATUS_FLOW, type ContentStatus } from "@/lib/types";
 
 const NEXT: Partial<Record<ContentStatus, ContentStatus>> = {
@@ -21,35 +28,62 @@ const LABELS: Partial<Record<ContentStatus, string>> = {
   scheduled: "Schedule & queue",
 };
 
+/** Next whole hour + 1, so server and client render the same default. */
+function defaultScheduleIso() {
+  const d = new Date();
+  d.setUTCMinutes(0, 0, 0);
+  return new Date(d.getTime() + 2 * 60 * 60 * 1000).toISOString();
+}
+
 export function ContentWorkflow({
   contentId,
   organisationId,
   status,
   scheduledAt,
+  timeZone,
 }: {
   contentId: string;
   organisationId: string;
   status: ContentStatus;
   scheduledAt?: string | null;
+  /** The business's IANA zone (organisations.timezone). */
+  timeZone: string;
 }) {
   const [pending, startTransition] = useTransition();
   const next = NEXT[status];
-  const defaultWhen = scheduledAt
-    ? new Date(scheduledAt).toISOString().slice(0, 16)
-    : new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16);
-  const [when, setWhen] = useState(defaultWhen);
+  const tz = normaliseTimeZone(timeZone);
+  // The field holds the BUSINESS's wall-clock time, not the browser's.
+  const [when, setWhen] = useState(() =>
+    toZonedInputValue(scheduledAt || defaultScheduleIso(), tz)
+  );
+  const parsed = fromZonedInputValue(when, tz);
 
   function advance(to: ContentStatus) {
     startTransition(async () => {
       if (to === "scheduled") {
-        const iso = new Date(when).toISOString();
+        // Convert once, here, from the business zone to UTC.
+        if (!parsed.ok) {
+          toast.error(parsed.message);
+          return;
+        }
         const res = await scheduleContentPublishing({
           contentId,
           organisationId,
-          scheduledAt: iso,
+          scheduledAt: parsed.iso,
         });
-        if (res.error) toast.error(res.error);
-        else toast.success("Scheduled for publishing");
+        if (res.error) {
+          toast.error(res.error);
+          return;
+        }
+        const queued = (res.platforms ?? [])
+          .filter((p) => p.status === "queued")
+          .map((p) => p.platform);
+        toast.success(
+          `Scheduled for ${formatInTimeZone(parsed.iso, tz)}${
+            queued.length ? ` on ${queued.join(", ")}` : ""
+          }`
+        );
+        if (res.warning) toast.warning(res.warning);
         return;
       }
       const res = await updateContentStatus(contentId, to);
@@ -84,14 +118,24 @@ export function ContentWorkflow({
 
       {(status === "approved" || status === "scheduled" || status === "failed") && (
         <div className="space-y-2">
-          <Label htmlFor="schedule_at">Publish at</Label>
+          <Label htmlFor="schedule_at">
+            Publish at ({timeZoneLabel(tz, parsed.ok ? parsed.iso : undefined)})
+          </Label>
           <Input
             id="schedule_at"
             type="datetime-local"
             value={when}
             onChange={(e) => setWhen(e.target.value)}
             className="max-w-xs"
+            aria-describedby="schedule_at_hint"
           />
+          <p id="schedule_at_hint" className="text-xs text-muted-foreground">
+            {!parsed.ok
+              ? parsed.message
+              : parsed.ambiguous
+                ? `${formatInTimeZone(parsed.iso, tz)}: this time happens twice when the clocks go back; the first one is used.`
+                : `Business time in ${tz}, whatever your device's time zone.`}
+          </p>
         </div>
       )}
 

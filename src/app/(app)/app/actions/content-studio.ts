@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
-import type { Json, SocialPlatform } from "@/lib/database.types";
+import type { Database, Json, SocialPlatform } from "@/lib/database.types";
 import type { ContentStatus } from "@/lib/types";
 import { upcomingScheduleTime } from "@/lib/social/scheduler";
 
@@ -263,6 +263,29 @@ export async function saveContentPackage(payload: {
   return { success: true, id: data.id };
 }
 
+/**
+ * Copy / media fields the editor may change. Deliberately NOT scheduled_at
+ * or status: rescheduling goes through scheduleContentPublishing (the
+ * schedule_content RPC), which moves the queued jobs with the post.
+ */
+const EDITABLE_CONTENT_FIELDS = [
+  "title",
+  "hook",
+  "caption",
+  "call_to_action",
+  "hashtags",
+  "video_concept",
+  "on_screen_text",
+  "voiceover_script",
+  "alt_text",
+  "posting_recommendation",
+  "media_asset_id",
+  "tone",
+] as const;
+type EditableContentField = (typeof EDITABLE_CONTENT_FIELDS)[number];
+
+const APPROVED_STATES: ContentStatus[] = ["approved", "scheduled", "failed"];
+
 export async function updateContentFields(input: {
   contentId: string;
   organisationId: string;
@@ -278,13 +301,15 @@ export async function updateContentFields(input: {
     alt_text?: string | null;
     posting_recommendation?: string | null;
     media_asset_id?: string | null;
-    scheduled_at?: string | null;
     tone?: string | null;
   };
   silent?: boolean;
-}) {
+}): Promise<
+  | { error: string; success?: undefined }
+  | { success: true; error?: undefined; status: ContentStatus; movedToReview: boolean }
+> {
   const auth = await getAuthed();
-  if ("error" in auth) return { error: auth.error };
+  if ("error" in auth) return { error: auth.error ?? "Not authenticated" };
 
   const membership = await assertMember(
     auth.supabase,
@@ -302,34 +327,71 @@ export async function updateContentFields(input: {
 
   if (!existing) return { error: "Content not found" };
 
-  const { error } = await auth.supabase
+  // Server actions accept any JSON: copy only the allowed keys.
+  const raw = (input.fields ?? {}) as Record<string, unknown>;
+  const updates: Partial<Record<EditableContentField, unknown>> = {};
+  for (const key of EDITABLE_CONTENT_FIELDS) {
+    if (raw[key] !== undefined) updates[key] = raw[key];
+  }
+  if ("scheduled_at" in raw || "status" in raw) {
+    return {
+      error:
+        "Change the schedule or status from the Workflow panel, not the editor.",
+    };
+  }
+  if (!Object.keys(updates).length) {
+    return {
+      success: true,
+      status: existing.status as ContentStatus,
+      movedToReview: false,
+    };
+  }
+
+  // A material edit to approved / scheduled / failed content is sent back to
+  // review by the database (content_material_edit_guard), which also holds
+  // its queued jobs; read the resulting status back.
+  const { data: updated, error } = await auth.supabase
     .from("content")
-    .update({
-      ...input.fields,
-      hashtags: input.fields.hashtags,
-    })
+    .update(updates as Database["public"]["Tables"]["content"]["Update"])
     .eq("id", input.contentId)
-    .eq("organisation_id", input.organisationId);
+    .eq("organisation_id", input.organisationId)
+    .select("status");
 
   if (error) return { error: error.message };
+  if (!updated?.length) {
+    return { error: "You don't have permission to edit this post in its current state" };
+  }
 
-  if (!input.silent) {
+  const status = updated[0].status as ContentStatus;
+  const movedToReview =
+    APPROVED_STATES.includes(existing.status as ContentStatus) && status === "review";
+
+  if (movedToReview) {
     await auth.supabase.from("content_events").insert({
       organisation_id: input.organisationId,
       content_id: input.contentId,
-      event_type: input.fields.media_asset_id !== undefined
+      event_type: "sent_to_review",
+      actor_id: auth.user.id,
+      summary: "Edited after approval: needs approval again; queued posts are on hold",
+      metadata: { fields: Object.keys(updates), previous_status: existing.status },
+    });
+  } else if (!input.silent) {
+    await auth.supabase.from("content_events").insert({
+      organisation_id: input.organisationId,
+      content_id: input.contentId,
+      event_type: updates.media_asset_id !== undefined
         ? "media_changed"
         : "edited",
       actor_id: auth.user.id,
       summary: "Content updated",
-      metadata: { fields: Object.keys(input.fields) },
+      metadata: { fields: Object.keys(updates) },
     });
   }
 
   revalidatePath(`/app/content/${input.contentId}`);
   revalidatePath("/app/content");
   revalidatePath("/app/calendar");
-  return { success: true };
+  return { success: true, status, movedToReview };
 }
 
 export async function createContentSeries(input: {

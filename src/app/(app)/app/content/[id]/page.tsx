@@ -51,7 +51,7 @@ export default async function ContentDetailPage({
       .limit(20),
     supabase
       .from("organisations")
-      .select("name")
+      .select("name, timezone")
       .eq("id", item.organisation_id)
       .maybeSingle(),
   ]);
@@ -201,6 +201,7 @@ export default async function ContentDetailPage({
                 organisationId={item.organisation_id}
                 status={item.status as ContentStatus}
                 scheduledAt={item.scheduled_at}
+                timeZone={org?.timezone ?? "Europe/London"}
               />
             </div>
           </section>
@@ -219,8 +220,10 @@ export default async function ContentDetailPage({
               voiceover_script: itemExt.voiceover_script ?? null,
               alt_text: itemExt.alt_text ?? null,
               posting_recommendation: itemExt.posting_recommendation ?? null,
-              scheduled_at: item.scheduled_at,
             }}
+            status={item.status as ContentStatus}
+            scheduledAt={item.scheduled_at}
+            timeZone={org?.timezone ?? "Europe/London"}
           />
 
           <section className="jacita-panel rounded-2xl p-5 sm:p-6">

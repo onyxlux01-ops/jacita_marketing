@@ -15,6 +15,7 @@
     "test:publishing": "node scripts/publishing-reliability-unit.mjs",
     "test:meta": "node scripts/meta-isolation-ads-unit.mjs",
     "test:meta-suite": "node scripts/meta-completion-suite.mjs",
+    "test:timezone": "node --test scripts/timezone-unit.test.mts",
     "check:social": "node scripts/check-social-config.mjs",
     "check:openai": "node --env-file=.env.local scripts/check-openai.mjs",
     "cleanup:test-artifacts:remote": "node --env-file=.env.local scripts/cleanup-test-artifacts-remote.mjs",

@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { updateContentFields } from "@/app/(app)/app/actions/content-studio";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatInTimeZone, normaliseTimeZone } from "@/lib/timezone";
+import type { ContentStatus } from "@/lib/types";
 
 type Fields = {
   title: string;
@@ -19,33 +22,27 @@ type Fields = {
   voiceover_script: string;
   alt_text: string;
   posting_recommendation: string;
-  scheduled_at: string;
 };
 
-export function ContentEditor({
-  contentId,
-  organisationId,
-  initial,
-}: {
-  contentId: string;
-  organisationId: string;
-  initial: {
-    title: string | null;
-    hook: string | null;
-    caption: string | null;
-    call_to_action: string | null;
-    hashtags: string[] | null;
-    video_concept: string | null;
-    on_screen_text: string | null;
-    voiceover_script: string | null;
-    alt_text: string | null;
-    posting_recommendation: string | null;
-    scheduled_at: string | null;
-  };
-}) {
-  const [pending, startTransition] = useTransition();
-  const [dirty, setDirty] = useState(false);
-  const [fields, setFields] = useState<Fields>({
+type Initial = {
+  title: string | null;
+  hook: string | null;
+  caption: string | null;
+  call_to_action: string | null;
+  hashtags: string[] | null;
+  video_concept: string | null;
+  on_screen_text: string | null;
+  voiceover_script: string | null;
+  alt_text: string | null;
+  posting_recommendation: string | null;
+};
+
+type SaveState = "idle" | "saving" | "saved" | "failed";
+
+const APPROVED_STATES: ContentStatus[] = ["approved", "scheduled", "failed"];
+
+function toFields(initial: Initial): Fields {
+  return {
     title: initial.title || "",
     hook: initial.hook || "",
     caption: initial.caption || "",
@@ -56,100 +53,185 @@ export function ContentEditor({
     voiceover_script: initial.voiceover_script || "",
     alt_text: initial.alt_text || "",
     posting_recommendation: initial.posting_recommendation || "",
-    scheduled_at: initial.scheduled_at
-      ? new Date(initial.scheduled_at).toISOString().slice(0, 16)
-      : "",
+  };
+}
+
+function toPayload(f: Fields) {
+  return {
+    title: f.title || null,
+    hook: f.hook || null,
+    caption: f.caption || null,
+    call_to_action: f.call_to_action || null,
+    hashtags: f.hashtags
+      .split(/[#,]+/)
+      .map((t) => t.trim())
+      .filter(Boolean),
+    video_concept: f.video_concept || null,
+    on_screen_text: f.on_screen_text || null,
+    voiceover_script: f.voiceover_script || null,
+    alt_text: f.alt_text || null,
+    posting_recommendation: f.posting_recommendation || null,
+  };
+}
+
+/**
+ * Copy editor with autosave.
+ *
+ * Every edit bumps a revision. Saves run one at a time (a promise chain), each
+ * sending the snapshot of the revision it was queued for; the editor is
+ * "saved" only once the LATEST revision has been saved, so an older save
+ * finishing late can never mark newer edits as saved. A failed save keeps the
+ * edits dirty and shows Failed with a retry.
+ *
+ * The schedule is not edited here: it is changed from the Workflow panel,
+ * which reschedules the queued posts through the scheduler.
+ */
+export function ContentEditor({
+  contentId,
+  organisationId,
+  initial,
+  status,
+  scheduledAt,
+  timeZone,
+}: {
+  contentId: string;
+  organisationId: string;
+  initial: Initial;
+  status: ContentStatus;
+  scheduledAt: string | null;
+  timeZone: string;
+}) {
+  const router = useRouter();
+  const tz = normaliseTimeZone(timeZone);
+  const [fields, setFields] = useState<Fields>(() => toFields(initial));
+  const [revision, setRevision] = useState(0);
+  const [savedRevision, setSavedRevision] = useState(0);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Mutable mirrors for the save queue (read only in handlers/effects).
+  const latest = useRef<{ fields: Fields; revision: number }>({
+    fields: toFields(initial),
+    revision: 0,
   });
+  const saved = useRef<{ fields: Fields; revision: number }>({
+    fields: toFields(initial),
+    revision: 0,
+  });
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const inFlight = useRef(0);
+
+  const dirty = revision > savedRevision;
+  const busy = saveState === "saving";
 
   function patch<K extends keyof Fields>(key: K, value: Fields[K]) {
-    setFields((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
+    const next = { ...latest.current.fields, [key]: value };
+    const rev = latest.current.revision + 1;
+    latest.current = { fields: next, revision: rev };
+    setFields(next);
+    setRevision(rev);
   }
 
-  useEffect(() => {
-    if (!dirty) return;
-    const timer = setTimeout(() => {
-      startTransition(async () => {
+  function enqueueSave(explicit: boolean) {
+    const { fields: snapshot, revision: rev } = latest.current;
+    chain.current = chain.current.then(async () => {
+      // A later save already covered this revision.
+      if (rev <= saved.current.revision && !explicit) return;
+      inFlight.current += 1;
+      setSaveState("saving");
+      let outcome: SaveState = "saved";
+      try {
         const res = await updateContentFields({
           contentId,
           organisationId,
-          silent: true,
-          fields: {
-            title: fields.title || null,
-            hook: fields.hook || null,
-            caption: fields.caption || null,
-            call_to_action: fields.call_to_action || null,
-            hashtags: fields.hashtags
-              .split(/[#,]+/)
-              .map((t) => t.trim())
-              .filter(Boolean),
-            video_concept: fields.video_concept || null,
-            on_screen_text: fields.on_screen_text || null,
-            voiceover_script: fields.voiceover_script || null,
-            alt_text: fields.alt_text || null,
-            posting_recommendation: fields.posting_recommendation || null,
-            scheduled_at: fields.scheduled_at
-              ? new Date(fields.scheduled_at).toISOString()
-              : null,
-          },
+          silent: !explicit,
+          fields: toPayload(snapshot),
         });
-        if (res.error) toast.error(res.error);
-        else setDirty(false);
-      });
-    }, 900);
-    return () => clearTimeout(timer);
-  }, [fields, dirty, contentId, organisationId]);
-
-  function saveExplicit() {
-    startTransition(async () => {
-      const res = await updateContentFields({
-        contentId,
-        organisationId,
-        fields: {
-          title: fields.title || null,
-          hook: fields.hook || null,
-          caption: fields.caption || null,
-          call_to_action: fields.call_to_action || null,
-          hashtags: fields.hashtags
-            .split(/[#,]+/)
-            .map((t) => t.trim())
-            .filter(Boolean),
-          video_concept: fields.video_concept || null,
-          on_screen_text: fields.on_screen_text || null,
-          voiceover_script: fields.voiceover_script || null,
-          alt_text: fields.alt_text || null,
-          posting_recommendation: fields.posting_recommendation || null,
-          scheduled_at: fields.scheduled_at
-            ? new Date(fields.scheduled_at).toISOString()
-            : null,
-        },
-      });
-      if (res.error) toast.error(res.error);
-      else {
-        setDirty(false);
-        toast.success("Saved");
+        if (!res.success) {
+          outcome = "failed";
+          setSaveError(res.error);
+          if (explicit) toast.error(res.error);
+          return;
+        }
+        if (rev > saved.current.revision) {
+          saved.current = { fields: snapshot, revision: rev };
+          setSavedRevision(rev);
+        }
+        setSaveError(null);
+        if (res.movedToReview) {
+          toast.warning(
+            "This post was approved, so the edit sent it back to review. Its queued posts are on hold until it is approved again."
+          );
+          router.refresh();
+        } else if (explicit) {
+          toast.success("Saved");
+        }
+      } catch (e) {
+        outcome = "failed";
+        const message = e instanceof Error ? e.message : "Could not save";
+        setSaveError(message);
+        if (explicit) toast.error(message);
+      } finally {
+        inFlight.current -= 1;
+        if (inFlight.current === 0) setSaveState(outcome);
       }
     });
+    return chain.current;
+  }
+
+  const autosave = useEffectEvent(() => {
+    void enqueueSave(false);
+  });
+
+  // Debounced autosave of the latest revision. Not re-armed after a failure
+  // until the user edits again or retries (no silent retry loop).
+  useEffect(() => {
+    if (revision <= savedRevision || saveState === "failed") return;
+    const timer = setTimeout(autosave, 900);
+    return () => clearTimeout(timer);
+  }, [revision, savedRevision, saveState]);
+
+  // Warn before leaving with unsaved edits.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  function saveNow() {
+    if (saveState === "failed") setSaveState("idle");
+    void enqueueSave(true);
   }
 
   function discard() {
-    setFields({
-      title: initial.title || "",
-      hook: initial.hook || "",
-      caption: initial.caption || "",
-      call_to_action: initial.call_to_action || "",
-      hashtags: (initial.hashtags || []).join(", "),
-      video_concept: initial.video_concept || "",
-      on_screen_text: initial.on_screen_text || "",
-      voiceover_script: initial.voiceover_script || "",
-      alt_text: initial.alt_text || "",
-      posting_recommendation: initial.posting_recommendation || "",
-      scheduled_at: initial.scheduled_at
-        ? new Date(initial.scheduled_at).toISOString().slice(0, 16)
-        : "",
-    });
-    setDirty(false);
+    const rev = latest.current.revision + 1;
+    latest.current = { fields: saved.current.fields, revision: rev };
+    saved.current = { ...saved.current, revision: rev };
+    setFields(saved.current.fields);
+    setRevision(rev);
+    setSavedRevision(rev);
+    setSaveState("idle");
+    setSaveError(null);
   }
+
+  function onEdit<K extends keyof Fields>(key: K, value: Fields[K]) {
+    if (saveState === "failed") setSaveState("idle");
+    patch(key, value);
+  }
+
+  const statusText =
+    saveState === "failed" && dirty
+      ? `Save failed${saveError ? `: ${saveError}` : ""}`
+      : busy
+        ? "Saving…"
+        : dirty
+          ? "Unsaved changes · autosaving…"
+          : saveState === "saved"
+            ? "Saved"
+            : "All changes saved";
 
   return (
     <section className="jacita-panel space-y-4 rounded-xl p-5 sm:p-6">
@@ -159,8 +241,14 @@ export function ContentEditor({
           <h2 className="mt-1 font-heading text-lg font-semibold">
             Edit content
           </h2>
-          <p className="text-xs text-muted-foreground">
-            {dirty ? "Unsaved changes · autosaving…" : "All changes saved"}
+          <p
+            className={`text-xs ${
+              saveState === "failed" && dirty ? "text-destructive" : "text-muted-foreground"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {statusText}
           </p>
         </div>
         <div className="flex gap-2">
@@ -168,51 +256,54 @@ export function ContentEditor({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={pending || !dirty}
+            disabled={busy || !dirty}
             onClick={discard}
           >
             Discard
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={pending}
-            onClick={saveExplicit}
-          >
-            Save
+          <Button type="button" size="sm" disabled={busy} onClick={saveNow}>
+            {saveState === "failed" && dirty ? "Retry save" : "Save"}
           </Button>
         </div>
       </div>
 
+      {APPROVED_STATES.includes(status) ? (
+        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          This post is {status}. Changing its title, hook, caption, CTA,
+          hashtags or media sends it back to review and holds its queued posts
+          until it is approved again.
+        </p>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-2 sm:col-span-2">
           <Label>Title</Label>
-          <Input value={fields.title} onChange={(e) => patch("title", e.target.value)} />
+          <Input value={fields.title} onChange={(e) => onEdit("title", e.target.value)} />
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label>Hook</Label>
-          <Input value={fields.hook} onChange={(e) => patch("hook", e.target.value)} />
+          <Input value={fields.hook} onChange={(e) => onEdit("hook", e.target.value)} />
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label>Caption</Label>
           <Textarea
             rows={5}
             value={fields.caption}
-            onChange={(e) => patch("caption", e.target.value)}
+            onChange={(e) => onEdit("caption", e.target.value)}
           />
         </div>
         <div className="space-y-2">
           <Label>CTA</Label>
           <Input
             value={fields.call_to_action}
-            onChange={(e) => patch("call_to_action", e.target.value)}
+            onChange={(e) => onEdit("call_to_action", e.target.value)}
           />
         </div>
         <div className="space-y-2">
           <Label>Hashtags</Label>
           <Input
             value={fields.hashtags}
-            onChange={(e) => patch("hashtags", e.target.value)}
+            onChange={(e) => onEdit("hashtags", e.target.value)}
             placeholder="comma separated"
           />
         </div>
@@ -220,7 +311,7 @@ export function ContentEditor({
           <Label>On-screen text</Label>
           <Input
             value={fields.on_screen_text}
-            onChange={(e) => patch("on_screen_text", e.target.value)}
+            onChange={(e) => onEdit("on_screen_text", e.target.value)}
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
@@ -228,7 +319,7 @@ export function ContentEditor({
           <Textarea
             rows={2}
             value={fields.video_concept}
-            onChange={(e) => patch("video_concept", e.target.value)}
+            onChange={(e) => onEdit("video_concept", e.target.value)}
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
@@ -236,29 +327,32 @@ export function ContentEditor({
           <Textarea
             rows={2}
             value={fields.voiceover_script}
-            onChange={(e) => patch("voiceover_script", e.target.value)}
+            onChange={(e) => onEdit("voiceover_script", e.target.value)}
           />
         </div>
         <div className="space-y-2">
           <Label>Alt text</Label>
           <Input
             value={fields.alt_text}
-            onChange={(e) => patch("alt_text", e.target.value)}
+            onChange={(e) => onEdit("alt_text", e.target.value)}
           />
         </div>
         <div className="space-y-2">
           <Label>Schedule</Label>
-          <Input
-            type="datetime-local"
-            value={fields.scheduled_at}
-            onChange={(e) => patch("scheduled_at", e.target.value)}
-          />
+          <p className="rounded-md border border-input px-3 py-2 text-sm text-muted-foreground">
+            {scheduledAt
+              ? formatInTimeZone(scheduledAt, tz)
+              : "Not scheduled"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Times are in {tz}. Change the time from the Workflow panel.
+          </p>
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label>Posting recommendation</Label>
           <Input
             value={fields.posting_recommendation}
-            onChange={(e) => patch("posting_recommendation", e.target.value)}
+            onChange={(e) => onEdit("posting_recommendation", e.target.value)}
           />
         </div>
       </div>
