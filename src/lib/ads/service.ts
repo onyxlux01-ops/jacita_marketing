@@ -20,7 +20,13 @@ export type AdvertisingSettings = {
   daily_spend_limit_cents: number;
   max_active_campaigns: number;
   emergency_stopped: boolean;
+  /** How daily_spend_limit_cents applies (see 20261014170000_ads_execution_limits). */
+  limit_scope: AdLimitScope;
+  limit_period: AdLimitPeriod;
 };
+
+export type AdLimitScope = "per_campaign" | "business_total";
+export type AdLimitPeriod = "daily" | "lifetime";
 
 const MUTATING_ACTIONS: AdvertisingActionType[] = [
   "CREATE_CAMPAIGN",
@@ -39,6 +45,8 @@ function toAdvertisingSettings(
     daily_spend_limit_cents: Number(row.daily_spend_limit_cents),
     max_active_campaigns: row.max_active_campaigns,
     emergency_stopped: row.emergency_stopped,
+    limit_scope: (row.limit_scope as AdLimitScope) || "per_campaign",
+    limit_period: (row.limit_period as AdLimitPeriod) || "daily",
   };
 }
 
@@ -189,6 +197,8 @@ export async function getMetaSurfaceForOrganisation(organisationId: string) {
       emergencyStopped: settings.emergency_stopped,
       dailySpendLimitCents: settings.daily_spend_limit_cents,
       maxActiveCampaigns: settings.max_active_campaigns,
+      limitScope: settings.limit_scope,
+      limitPeriod: settings.limit_period,
       activeCampaigns,
       spend7d,
       pendingApprovals: (pending || []).map((p) => ({
@@ -221,7 +231,12 @@ export async function proposeAdvertisingAction(input: {
   if (settings.mode === "off") {
     return { error: "Advertising is turned off for this business." as const };
   }
-  if (settings.emergency_stopped && MUTATING_ACTIONS.includes(input.actionType)) {
+  // Pausing only reduces spend, so it stays possible during an emergency stop.
+  if (
+    settings.emergency_stopped &&
+    MUTATING_ACTIONS.includes(input.actionType) &&
+    input.actionType !== "PAUSE_CAMPAIGN"
+  ) {
     return {
       error: "Advertising emergency stop is active. Resume before proposing mutations." as const,
     };
@@ -242,15 +257,27 @@ export async function proposeAdvertisingAction(input: {
     }
   }
 
-  // Guardrail: CREATE_CAMPAIGN budget cannot exceed daily limit when set
+  // Early feedback only: the binding check runs again at execution time
+  // (claim_advertising_action) against the settings in force then.
   if (
-    input.actionType === "CREATE_CAMPAIGN" &&
+    (input.actionType === "CREATE_CAMPAIGN" || input.actionType === "UPDATE_CAMPAIGN") &&
     settings.daily_spend_limit_cents > 0
   ) {
-    const budget = Number(input.payload.dailyBudgetCents || 0);
-    if (budget > settings.daily_spend_limit_cents) {
+    const key =
+      settings.limit_period === "daily" ? "dailyBudgetCents" : "lifetimeBudgetCents";
+    const raw = input.payload[key];
+    const budget = raw != null ? Number(raw) : null;
+    if (budget != null && (!Number.isFinite(budget) || budget < 0)) {
+      return { error: "Budget must be a positive amount." as const };
+    }
+    if (budget != null && budget > settings.daily_spend_limit_cents) {
       return {
-        error: `Daily budget exceeds business limit of ${settings.daily_spend_limit_cents} cents.` as const,
+        error: `The ${settings.limit_period} budget exceeds this business's limit of ${settings.daily_spend_limit_cents} (minor units).` as const,
+      };
+    }
+    if (input.actionType === "CREATE_CAMPAIGN" && budget == null) {
+      return {
+        error: `This business limits ${settings.limit_period} spend: set a ${settings.limit_period} budget.` as const,
       };
     }
   }
@@ -324,6 +351,22 @@ export async function rejectAdvertisingAction(input: {
   return { success: true as const };
 }
 
+type ClaimResult =
+  | { ok: true; action: Tables<"advertising_actions"> }
+  | { ok: false; code: string; error: string; status?: string };
+
+/**
+ * Approve and run one advertising action.
+ *
+ * The decision is made in the database (claim_advertising_action): under a
+ * per-business lock it re-reads the CURRENT settings, validates the full
+ * resulting campaign state (active-campaign cap, per-campaign or
+ * business-wide budget for the configured period, counting other actions
+ * already executing) and claims the action (-> executing). Only the request
+ * that gets the claimed row back calls Meta, so a double click or two
+ * approvers can never execute it twice, and a limit lowered after the
+ * proposal is applied.
+ */
 export async function approveAndExecuteAdvertisingAction(input: {
   organisationId: string;
   userId: string;
@@ -336,45 +379,48 @@ export async function approveAndExecuteAdvertisingAction(input: {
   );
   if ("error" in membership) return membership;
 
-  const settings = await ensureAdvertisingSettings(input.organisationId);
-  if (settings.emergency_stopped) {
-    return { error: "Advertising emergency stop is active." as const };
-  }
-  // Autopilot ad spend is intentionally not enabled
-  if (settings.mode === "autopilot") {
-    return {
-      error:
-        "Autopilot advertising is not enabled. Keep mode on Approval." as const,
-    };
-  }
-
   const db = createAdminClient();
-  const { data: action } = await db
+  // Business check before the claim (the RPC itself is business-agnostic).
+  const { data: owned } = await db
     .from("advertising_actions")
-    .select("*")
+    .select("id")
     .eq("id", input.actionId)
     .eq("organisation_id", input.organisationId)
     .maybeSingle();
+  if (!owned) return { error: "Action not found for this business" };
 
-  if (!action) return { error: "Action not found for this business" };
-  if (action.status !== "proposed" && action.status !== "approved") {
-    return { error: `Action status is ${action.status}` };
+  await ensureAdvertisingSettings(input.organisationId);
+  const { data: claimData, error: claimError } = await db.rpc(
+    "claim_advertising_action",
+    { p_action_id: input.actionId, p_actor_user_id: input.userId }
+  );
+  if (claimError) {
+    console.error("claim_advertising_action failed", claimError.message);
+    return { error: "Could not start this advertising action. Try again." };
   }
+  const claim = claimData as unknown as ClaimResult;
+  if (!claim?.ok) {
+    if (claim?.code && claim.code !== "NOT_CLAIMABLE") {
+      await db.from("audit_logs").insert({
+        organisation_id: input.organisationId,
+        user_id: input.userId,
+        action: "ads.action_refused",
+        entity_type: "advertising_actions",
+        entity_id: input.actionId,
+        metadata: { code: claim.code, error: claim.error },
+      });
+    }
+    return {
+      error: claim?.error || "This advertising action cannot run now.",
+      code: claim?.code,
+    };
+  }
+  const action = claim.action;
 
-  // Read-only actions can run without mutation guardrails beyond org check
+  const settings = await ensureAdvertisingSettings(input.organisationId);
   const isMutating = MUTATING_ACTIONS.includes(
     action.action_type as AdvertisingActionType
   );
-
-  await db
-    .from("advertising_actions")
-    .update({
-      status: "executing",
-      approved_by: input.userId,
-      approved_at: new Date().toISOString(),
-    })
-    .eq("id", action.id)
-    .eq("organisation_id", input.organisationId);
 
   try {
     const result = await executeAdvertisingAction({
@@ -386,7 +432,7 @@ export async function approveAndExecuteAdvertisingAction(input: {
       isMutating,
     });
 
-    await db
+    const { error: doneError } = await db
       .from("advertising_actions")
       .update({
         status: "succeeded",
@@ -394,9 +440,13 @@ export async function approveAndExecuteAdvertisingAction(input: {
         external_ids: (result.externalIds || {}) as Json,
         error_message: null,
       })
-      .eq("id", action.id);
+      .eq("id", action.id)
+      .eq("status", "executing");
+    if (doneError) {
+      console.error("advertising action result not recorded", action.id, doneError.message);
+    }
 
-    await createAdminClient().from("audit_logs").insert({
+    await db.from("audit_logs").insert({
       organisation_id: input.organisationId,
       user_id: input.userId,
       action: "ads.action_executed",
@@ -417,9 +467,10 @@ export async function approveAndExecuteAdvertisingAction(input: {
         status: "failed",
         error_message: message,
       })
-      .eq("id", action.id);
+      .eq("id", action.id)
+      .eq("status", "executing");
 
-    await createAdminClient().from("audit_logs").insert({
+    await db.from("audit_logs").insert({
       organisation_id: input.organisationId,
       user_id: input.userId,
       action: "ads.action_failed",
@@ -549,30 +600,12 @@ async function executeAdvertisingAction(input: {
       };
     }
     case "CREATE_CAMPAIGN": {
-      if (input.isMutating && input.settings.daily_spend_limit_cents === 0) {
-        // 0 means "no paid campaigns until a limit is configured"
-        throw new Error(
-          "Set a daily spend limit greater than 0 before creating campaigns."
-        );
-      }
+      // Spend limit, budget type and active-campaign cap were validated by
+      // claim_advertising_action against the current settings.
       const acct = await requireOrgAdAccount(
         input.organisationId,
         input.metaAdAccountId || String(input.payload.metaAdAccountId || "")
       );
-      const { count } = await db
-        .from("meta_ad_campaigns")
-        .select("id", { count: "exact", head: true })
-        .eq("organisation_id", input.organisationId)
-        .eq("meta_ad_account_id", acct.id)
-        .or("effective_status.eq.ACTIVE,status.eq.ACTIVE");
-      if (
-        (count || 0) >= input.settings.max_active_campaigns &&
-        String(input.payload.status || "PAUSED") === "ACTIVE"
-      ) {
-        throw new Error(
-          `Active campaign limit (${input.settings.max_active_campaigns}) reached.`
-        );
-      }
 
       const created = await metaAdsAdapter.createCampaign(
         token,
@@ -646,22 +679,43 @@ async function executeAdvertisingAction(input: {
       const campaignId = String(input.payload.externalCampaignId || "");
       if (!campaignId) throw new Error("externalCampaignId is required");
       await assertCampaignBelongsToOrg(input.organisationId, campaignId);
-      if (
-        input.payload.dailyBudgetCents != null &&
-        input.settings.daily_spend_limit_cents > 0 &&
-        Number(input.payload.dailyBudgetCents) >
-          input.settings.daily_spend_limit_cents
-      ) {
-        throw new Error("Daily budget exceeds business spend limit.");
-      }
+      // Budget vs limit validated by claim_advertising_action.
+      const dailyBudgetCents =
+        input.payload.dailyBudgetCents != null
+          ? Number(input.payload.dailyBudgetCents)
+          : undefined;
+      const lifetimeBudgetCents =
+        input.payload.lifetimeBudgetCents != null
+          ? Number(input.payload.lifetimeBudgetCents)
+          : undefined;
+      const status = input.payload.status as "PAUSED" | "ACTIVE" | undefined;
       const updated = await metaAdsAdapter.updateCampaign(token, campaignId, {
         name: input.payload.name ? String(input.payload.name) : undefined,
-        dailyBudgetCents:
-          input.payload.dailyBudgetCents != null
-            ? Number(input.payload.dailyBudgetCents)
-            : undefined,
-        status: input.payload.status as "PAUSED" | "ACTIVE" | undefined,
+        dailyBudgetCents,
+        lifetimeBudgetCents,
+        status,
       });
+      // Keep the cache (which the limit checks read) in step with Meta.
+      const cachePatch: {
+        last_synced_at: string;
+        daily_budget_cents?: number;
+        lifetime_budget_cents?: number;
+        status?: string;
+        effective_status?: string;
+        name?: string;
+      } = { last_synced_at: new Date().toISOString() };
+      if (dailyBudgetCents !== undefined) cachePatch.daily_budget_cents = dailyBudgetCents;
+      if (lifetimeBudgetCents !== undefined) cachePatch.lifetime_budget_cents = lifetimeBudgetCents;
+      if (status) {
+        cachePatch.status = status;
+        cachePatch.effective_status = status;
+      }
+      if (input.payload.name) cachePatch.name = String(input.payload.name);
+      await db
+        .from("meta_ad_campaigns")
+        .update(cachePatch)
+        .eq("organisation_id", input.organisationId)
+        .eq("external_campaign_id", campaignId);
       return {
         campaign: updated,
         externalIds: { campaign_id: campaignId },
@@ -716,6 +770,8 @@ export async function updateAdvertisingSettings(input: {
   maxActiveCampaigns?: number;
   mode?: "off" | "approval";
   emergencyStopped?: boolean;
+  limitScope?: AdLimitScope;
+  limitPeriod?: AdLimitPeriod;
 }) {
   const membership = await assertOrgMembership(
     input.organisationId,
@@ -730,12 +786,28 @@ export async function updateAdvertisingSettings(input: {
     max_active_campaigns?: number;
     mode?: string;
     emergency_stopped?: boolean;
+    limit_scope?: AdLimitScope;
+    limit_period?: AdLimitPeriod;
   } = {};
+  if (input.limitScope != null) {
+    if (input.limitScope !== "per_campaign" && input.limitScope !== "business_total") {
+      return { error: "Unknown limit scope" };
+    }
+    patch.limit_scope = input.limitScope;
+  }
+  if (input.limitPeriod != null) {
+    if (input.limitPeriod !== "daily" && input.limitPeriod !== "lifetime") {
+      return { error: "Unknown limit period" };
+    }
+    patch.limit_period = input.limitPeriod;
+  }
   if (input.dailySpendLimitCents != null) {
-    patch.daily_spend_limit_cents = Math.max(0, input.dailySpendLimitCents);
+    if (!Number.isFinite(input.dailySpendLimitCents)) return { error: "Invalid spend limit" };
+    patch.daily_spend_limit_cents = Math.max(0, Math.round(input.dailySpendLimitCents));
   }
   if (input.maxActiveCampaigns != null) {
-    patch.max_active_campaigns = Math.max(0, input.maxActiveCampaigns);
+    if (!Number.isFinite(input.maxActiveCampaigns)) return { error: "Invalid campaign limit" };
+    patch.max_active_campaigns = Math.max(0, Math.round(input.maxActiveCampaigns));
   }
   if (input.mode) {
     // Never allow enabling autopilot ads from settings

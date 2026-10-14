@@ -41,6 +41,7 @@ export type Database = {
           approved_by: string | null
           created_at: string
           error_message: string | null
+          executing_started_at: string | null
           external_ids: Json
           id: string
           meta_ad_account_id: string | null
@@ -58,6 +59,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string
           error_message?: string | null
+          executing_started_at?: string | null
           external_ids?: Json
           id?: string
           meta_ad_account_id?: string | null
@@ -75,6 +77,7 @@ export type Database = {
           approved_by?: string | null
           created_at?: string
           error_message?: string | null
+          executing_started_at?: string | null
           external_ids?: Json
           id?: string
           meta_ad_account_id?: string | null
@@ -108,6 +111,8 @@ export type Database = {
           created_at: string
           daily_spend_limit_cents: number
           emergency_stopped: boolean
+          limit_period: string
+          limit_scope: string
           max_active_campaigns: number
           metadata: Json
           mode: string
@@ -118,6 +123,8 @@ export type Database = {
           created_at?: string
           daily_spend_limit_cents?: number
           emergency_stopped?: boolean
+          limit_period?: string
+          limit_scope?: string
           max_active_campaigns?: number
           metadata?: Json
           mode?: string
@@ -128,6 +135,8 @@ export type Database = {
           created_at?: string
           daily_spend_limit_cents?: number
           emergency_stopped?: boolean
+          limit_period?: string
+          limit_scope?: string
           max_active_campaigns?: number
           metadata?: Json
           mode?: string
@@ -2763,6 +2772,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_advertising_action: {
+        Args: { p_action_id: string; p_actor_user_id: string }
+        Returns: Json
+      }
       claim_publish_job: {
         Args: {
           p_allowed_states: Database["public"]["Enums"]["publish_job_status"][]
@@ -3095,7 +3108,6 @@ export const Constants = {
     },
   },
 } as const
-
 
 // ---------------------------------------------------------------------------
 // App aliases (not generated). Regenerate the schema above with

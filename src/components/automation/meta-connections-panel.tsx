@@ -10,6 +10,7 @@ import {
   saveAdvertisingLimits,
 } from "@/app/(app)/app/actions/meta-ads";
 import { Button } from "@/components/ui/button";
+import { AdLimitsForm } from "@/components/automation/ad-limits-form";
 import { cn } from "@/lib/utils";
 
 export type MetaSurfaceSnapshot = {
@@ -28,6 +29,8 @@ export type MetaSurfaceSnapshot = {
     emergencyStopped: boolean;
     dailySpendLimitCents: number;
     maxActiveCampaigns: number;
+    limitScope: "per_campaign" | "business_total";
+    limitPeriod: "daily" | "lifetime";
     activeCampaigns: number;
     spend7d: number;
     pendingApprovals: Array<{
@@ -171,7 +174,10 @@ export function MetaConnectionsPanel({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">Daily limit</dt>
+            <dt className="text-xs text-muted-foreground">
+              {ads.limitPeriod === "lifetime" ? "Lifetime" : "Daily"} limit
+              {ads.limitScope === "business_total" ? " (all campaigns)" : " (per campaign)"}
+            </dt>
             <dd className="mt-1 font-medium">
               {ads.dailySpendLimitCents > 0
                 ? `${(ads.dailySpendLimitCents / 100).toFixed(0)} ${
@@ -252,6 +258,15 @@ export function MetaConnectionsPanel({
             </Button>
           )}
         </div>
+
+        <AdLimitsForm
+          organisationId={surface.organisationId}
+          currency={surface.adAccount.connected ? surface.adAccount.currency : null}
+          limitCents={ads.dailySpendLimitCents}
+          maxActiveCampaigns={ads.maxActiveCampaigns}
+          limitScope={ads.limitScope}
+          limitPeriod={ads.limitPeriod}
+        />
 
         {ads.pendingApprovals.length ? (
           <div className="mt-5 space-y-3">

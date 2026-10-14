@@ -275,6 +275,7 @@ export const metaAdsAdapter = {
     patch: {
       name?: string;
       dailyBudgetCents?: number | null;
+      lifetimeBudgetCents?: number | null;
       status?: "PAUSED" | "ACTIVE";
     }
   ): Promise<{ externalCampaignId: string }> {
@@ -284,6 +285,9 @@ export const metaAdsAdapter = {
     if (patch.status) body.status = patch.status;
     if (patch.dailyBudgetCents != null) {
       body.daily_budget = String(patch.dailyBudgetCents);
+    }
+    if (patch.lifetimeBudgetCents != null) {
+      body.lifetime_budget = String(patch.lifetimeBudgetCents);
     }
     await metaFetch(`/${externalCampaignId}`, {
       method: "POST",

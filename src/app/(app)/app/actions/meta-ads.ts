@@ -105,6 +105,8 @@ export async function saveAdvertisingLimits(input: {
   maxActiveCampaigns: number;
   emergencyStopped?: boolean;
   mode?: "off" | "approval";
+  limitScope?: "per_campaign" | "business_total";
+  limitPeriod?: "daily" | "lifetime";
 }) {
   const auth = await getAuthed();
   if ("error" in auth) return { error: auth.error };
@@ -116,6 +118,8 @@ export async function saveAdvertisingLimits(input: {
     maxActiveCampaigns: input.maxActiveCampaigns,
     emergencyStopped: input.emergencyStopped,
     mode: input.mode,
+    limitScope: input.limitScope,
+    limitPeriod: input.limitPeriod,
   });
 
   revalidatePath("/app/automation");
