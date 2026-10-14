@@ -25,6 +25,8 @@ type State = {
   /** Mocked Meta Graph API. Throw to simulate a Graph error. */
   metaFetch: MetaFetchHandler | null;
   postCounter: number;
+  /** Simulated provider latency, to make concurrent requests overlap. */
+  publishDelayMs: number;
 };
 
 const g = globalThis as unknown as { __jacitaItest?: State };
@@ -36,9 +38,11 @@ export const itest: State =
     publishCalls: [],
     metaFetch: null,
     postCounter: 0,
+    publishDelayMs: 0,
   });
 
 export function resetProviders() {
   itest.publishCalls.length = 0;
   itest.metaFetch = null;
+  itest.publishDelayMs = 0;
 }

@@ -2451,6 +2451,7 @@ export type Database = {
           payload_snapshot: Json
           platform: Database["public"]["Enums"]["social_platform"]
           published_at: string | null
+          request_sent_at: string | null
           scheduled_at: string
           simulated: boolean
           social_account_id: string
@@ -2484,6 +2485,7 @@ export type Database = {
           payload_snapshot?: Json
           platform: Database["public"]["Enums"]["social_platform"]
           published_at?: string | null
+          request_sent_at?: string | null
           scheduled_at: string
           simulated?: boolean
           social_account_id: string
@@ -2517,6 +2519,7 @@ export type Database = {
           payload_snapshot?: Json
           platform?: Database["public"]["Enums"]["social_platform"]
           published_at?: string | null
+          request_sent_at?: string | null
           scheduled_at?: string
           simulated?: boolean
           social_account_id?: string
@@ -2711,6 +2714,14 @@ export type Database = {
         }
         Returns: string
       }
+      claim_publish_job: {
+        Args: {
+          p_job_id: string
+          p_lock_token: string
+          p_allowed_states: Database["public"]["Enums"]["publish_job_status"][]
+        }
+        Returns: Database["public"]["Tables"]["social_publish_jobs"]["Row"][]
+      }
       transfer_ownership: {
         Args: {
           p_organisation_id: string
@@ -2775,6 +2786,7 @@ export type Database = {
         | "expired"
         | "ready"
         | "held"
+        | "uncertain"
       social_platform: "instagram" | "facebook" | "tiktok"
     }
     CompositeTypes: {
@@ -2962,6 +2974,7 @@ export const Constants = {
         "expired",
         "ready",
         "held",
+        "uncertain",
       ],
       social_platform: ["instagram", "facebook", "tiktok"],
     },

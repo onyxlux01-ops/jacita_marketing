@@ -95,6 +95,12 @@ export async function publishContent(input: {
   simulated?: boolean;
   /** External account the job was approved for; refuse if it changed. */
   expectedExternalAccountId?: string | null;
+  /**
+   * Called immediately before the provider request (job engine records the
+   * "request sent" crash marker under its lock). Returning false aborts
+   * without contacting the provider.
+   */
+  onBeforeProviderRequest?: () => Promise<boolean>;
 }): Promise<PublishContentResult> {
   const admin = createAdminClient();
   const simulated =
@@ -369,6 +375,15 @@ export async function publishContent(input: {
       error: `Could not record publish start: ${(contentStartError || cpStartError)!.message}`,
       errorType: "UNKNOWN_ERROR",
       retryable: true,
+    };
+  }
+
+  if (input.onBeforeProviderRequest && !(await input.onBeforeProviderRequest())) {
+    return {
+      error: "Publish aborted: this worker no longer holds the job lock.",
+      errorType: "UNKNOWN_ERROR",
+      retryable: false,
+      errorCode: "LOCK_LOST",
     };
   }
 

@@ -58,19 +58,12 @@ export async function disconnectSocialAccount(input: {
 
   if (!account) return { error: "Account not found" };
 
-  try {
-    const token = await loadAccountSecrets(account.id, input.organisationId);
-    if (token) {
-      const adapter = getSocialAdapter(input.platform);
-      await adapter.disconnect?.(token);
-    }
-  } catch {
-    // Continue disconnecting locally even if remote revoke fails
-  }
+  const token = await loadAccountSecrets(account.id, input.organisationId).catch(
+    () => null
+  );
 
-  await deleteAccountSecrets(account.id, input.organisationId);
-
-  await auth.supabase
+  // 1. Mark disconnected first so no worker starts a new publish on it.
+  const { data: marked, error: markError } = await auth.supabase
     .from("social_accounts")
     .update({
       connection_status: "not_connected",
@@ -81,11 +74,15 @@ export async function disconnectSocialAccount(input: {
       // Keep account_name/handle/history identifiers for display of past publishes
     })
     .eq("id", account.id)
-    .eq("organisation_id", input.organisationId);
+    .eq("organisation_id", input.organisationId)
+    .select("id");
+  if (markError) return { error: markError.message };
+  if (!marked?.length) return { error: "Account could not be disconnected" };
 
-  // Cancel all active jobs for this account
+  // 2. Cancel queued jobs. A job already `processing` is NOT touched: its
+  // worker owns it and will finish (or fail) on its own.
   const admin = createAdminClient();
-  await admin
+  const { error: cancelError } = await admin
     .from("social_publish_jobs")
     .update({
       status: "cancelled",
@@ -94,7 +91,28 @@ export async function disconnectSocialAccount(input: {
     })
     .eq("social_account_id", account.id)
     .eq("organisation_id", input.organisationId)
-    .in("status", ["pending", "ready", "retrying", "processing", "held"]);
+    .in("status", ["pending", "ready", "retrying", "held"]);
+  if (cancelError) {
+    return {
+      error: `Account marked disconnected, but queued posts could not be cancelled: ${cancelError.message}`,
+    };
+  }
+
+  // 3. Best-effort remote revoke, then remove stored credentials.
+  try {
+    if (token) await getSocialAdapter(input.platform).disconnect?.(token);
+  } catch {
+    // Continue disconnecting locally even if remote revoke fails
+  }
+  try {
+    await deleteAccountSecrets(account.id, input.organisationId);
+  } catch (e) {
+    return {
+      error: `Account disconnected, but stored credentials could not be removed: ${
+        e instanceof Error ? e.message : "unknown error"
+      }`,
+    };
+  }
 
   await auth.supabase.from("audit_logs").insert({
     organisation_id: input.organisationId,

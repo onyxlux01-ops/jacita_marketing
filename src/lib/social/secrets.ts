@@ -62,9 +62,10 @@ export async function deleteAccountSecrets(
   organisationId: string
 ) {
   const admin = createAdminClient();
-  await admin
+  const { error } = await admin
     .from("social_account_secrets")
     .delete()
     .eq("social_account_id", socialAccountId)
     .eq("organisation_id", organisationId);
+  if (error) throw new Error(`Failed to delete token vault: ${error.message}`);
 }

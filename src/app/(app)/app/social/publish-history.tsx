@@ -78,6 +78,8 @@ export function PublishHistory({ logs }: { logs: Log[] }) {
                         socialAccountId: log.social_account_id!,
                       });
                       if ("error" in res && res.error) toast.error(res.error);
+                      else if ("inProgress" in res && res.inProgress)
+                        toast.info(res.message);
                       else toast.success("Retry started");
                     });
                   }}

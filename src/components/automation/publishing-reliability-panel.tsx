@@ -40,7 +40,9 @@ export function PublishingReliabilityPanel({
   );
   const processing = data.queue.filter((q) => q.status === "processing");
   // Held for re-approval (role lost, content un-approved, account switched).
-  const held = data.queue.filter((q) => q.status === "held");
+  const held = data.queue.filter(
+    (q) => q.status === "held" || q.status === "uncertain"
+  );
   const completed = data.queue.filter((q) => q.status === "published").slice(-5);
   const failed = data.failed;
 
@@ -171,7 +173,7 @@ export function PublishingReliabilityPanel({
               [
                 ["READY", ready],
                 ["PROCESSING", processing],
-                ["HELD · NEEDS RE-APPROVAL", held],
+                ["HELD / UNCERTAIN · NEEDS A PERSON", held],
                 ["COMPLETED", completed],
                 ["FAILED", failed.map((f) => ({
                   id: f.id,

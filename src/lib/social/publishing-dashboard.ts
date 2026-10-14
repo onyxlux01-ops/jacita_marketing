@@ -138,7 +138,7 @@ export async function getPublishingDashboard(
       .from("social_publish_jobs")
       .select("id, platform, error_message, error_type, content_id, status")
       .eq("organisation_id", organisationId)
-      .eq("status", "failed")
+      .in("status", ["failed", "uncertain"])
       .order("updated_at", { ascending: false })
       .limit(5),
     supabase
@@ -153,6 +153,7 @@ export async function getPublishingDashboard(
         "processing",
         "retrying",
         "held",
+        "uncertain",
         "published",
         "failed",
       ])

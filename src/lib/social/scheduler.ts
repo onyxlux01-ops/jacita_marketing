@@ -5,6 +5,7 @@ import {
   processClaimedPublishJob,
   claimPublishJob,
   buildIdempotencyKey,
+  newLockToken,
 } from "@/lib/social/reliability";
 import {
   contentStatusAllows,
@@ -12,7 +13,8 @@ import {
   resolveContentPlatform,
 } from "@/lib/social/publish-authz";
 import type { SocialPlatform } from "@/lib/types";
-import { randomBytes } from "crypto";
+
+type Admin = ReturnType<typeof createAdminClient>;
 
 /**
  * Process due publish jobs with locking, retries, and idempotency.
@@ -274,6 +276,11 @@ export async function publishContentViaJobPipeline(input: {
     };
   }
 
+  // A job that is already processing is never reset or re-claimed.
+  if (existingJob?.status === "processing") {
+    return IN_PROGRESS;
+  }
+
   let jobId = existingJob?.id || null;
   if (!jobId) {
     const enqueued = await enqueuePublishJobsForContent({
@@ -308,14 +315,13 @@ export async function publishContentViaJobPipeline(input: {
     // Stash on job payload if needed later — TikTok path already reads env/defaults
   }
 
+  // Prepare (only from a queued state — never touches a processing job).
   const { data: reset, error: resetError } = await admin
     .from("social_publish_jobs")
     .update({
       status: "ready",
       scheduled_at: new Date().toISOString(),
       next_retry_at: null,
-      locked_at: null,
-      lock_token: null,
       created_by: input.userId,
       content_platform_id: contentPlatformId,
       // Explicit manual publish targets the account connected right now.
@@ -323,17 +329,42 @@ export async function publishContentViaJobPipeline(input: {
     })
     .eq("id", jobId)
     .eq("organisation_id", content.organisation_id)
+    .in("status", ["pending", "ready", "retrying"])
     .select("id");
   if (resetError) return { error: resetError.message };
-  if (!reset?.length) return { error: "Publish job could not be prepared" };
+  if (!reset?.length) return jobStateAfterLostRace(admin, jobId);
 
-  const lockToken = randomBytes(16).toString("hex");
-  const claimed = await claimPublishJob(admin, jobId, lockToken);
-  if (!claimed) {
-    return { error: "Could not claim publish job (another worker holds it)" };
-  }
+  const claimed = await claimPublishJob(admin, jobId, newLockToken(), ["ready"]);
+  if (!claimed) return jobStateAfterLostRace(admin, jobId);
 
   return processClaimedPublishJob(admin, claimed, { force: true });
+}
+
+const IN_PROGRESS = {
+  inProgress: true as const,
+  status: "processing" as const,
+  message: "This post is already being published. Check back in a moment.",
+};
+
+/** Another request/worker got the job first: report what it is doing. */
+async function jobStateAfterLostRace(admin: Admin, jobId: string) {
+  const { data } = await admin
+    .from("social_publish_jobs")
+    .select("status, external_post_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (data?.status === "processing") return IN_PROGRESS;
+  if (data?.status === "published") {
+    return {
+      success: true as const,
+      externalPostId: data.external_post_id || "",
+      status: "published" as const,
+      duplicate: true,
+    };
+  }
+  return {
+    error: `This publish job is ${data?.status ?? "unavailable"} and was not started.`,
+  };
 }
 
 /**
@@ -368,6 +399,7 @@ export async function retryPublishJob(input: {
   if (job.external_post_id || job.published_at) {
     return { error: "Already published — duplicate blocked", duplicate: true };
   }
+  if (job.status === "processing") return IN_PROGRESS;
 
   const { data: content } = await admin
     .from("content")
@@ -400,20 +432,20 @@ export async function retryPublishJob(input: {
       hold_reason: null,
       held_at: null,
       next_retry_at: null,
-      locked_at: null,
-      lock_token: null,
       created_by: input.userId,
       target_external_account_id: account.external_account_id,
     })
     .eq("id", job.id)
     .eq("organisation_id", input.organisationId)
+    // Never from processing/published/cancelled. `uncertain` is allowed: a
+    // person has checked the platform and is explicitly retrying.
+    .in("status", ["failed", "retrying", "expired", "held", "uncertain", "pending", "ready"])
     .select("id");
   if (resetError) return { error: resetError.message };
-  if (!reset?.length) return { error: "Job could not be reset for retry" };
+  if (!reset?.length) return jobStateAfterLostRace(admin, job.id);
 
-  const lockToken = randomBytes(16).toString("hex");
-  const claimed = await claimPublishJob(admin, job.id, lockToken);
-  if (!claimed) return { error: "Could not claim job (another worker holds it)" };
+  const claimed = await claimPublishJob(admin, job.id, newLockToken(), ["ready"]);
+  if (!claimed) return jobStateAfterLostRace(admin, job.id);
 
   return processClaimedPublishJob(admin, claimed, {
     force: input.force ?? false,

@@ -18,7 +18,7 @@ import {
 } from "@/lib/social/publish-authz";
 import { logAutomationActivity } from "@/lib/automation/settings";
 import { notifyAutomationIssue } from "@/lib/automation/notify";
-import type { Json } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import type { SocialPlatform } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -120,31 +120,25 @@ export async function holdPublishJob(
     organisation_id: string;
     platform: string;
     content_platform_id?: string | null;
+    lock_token?: string | null;
   },
   reason: HoldReason,
   message: string
 ) {
-  const { error } = await admin
-    .from("social_publish_jobs")
-    .update({
-      status: "held",
-      hold_reason: reason,
-      held_at: new Date().toISOString(),
-      error_type: "PERMISSION_ERROR",
-      error_code: reason,
-      error_message: message,
-      locked_at: null,
-      lock_token: null,
-    })
-    .eq("id", job.id)
-    .eq("organisation_id", job.organisation_id);
-  if (error) {
-    // Leave it locked in processing rather than risk executing it; the
-    // abandoned-lock recovery will re-run the gate later.
-    console.error(
-      JSON.stringify({ scope: "publishing", job_id: job.id, hold_failed: error.message })
-    );
-  } else if (job.content_platform_id) {
+  // Only the lock holder may hold the job. If the write fails the job stays
+  // locked in processing (never executed); request_sent_at is unset, so the
+  // abandoned-lock recovery will retry it safely and re-run the gates.
+  const ok = await updateLockedJob(admin, job, {
+    status: "held",
+    hold_reason: reason,
+    held_at: new Date().toISOString(),
+    error_type: "PERMISSION_ERROR",
+    error_code: reason,
+    error_message: message,
+    locked_at: null,
+    lock_token: null,
+  });
+  if (ok && job.content_platform_id) {
     // Calendar / content page must not keep showing it as scheduled.
     const { error: cpError } = await admin
       .from("content_platforms")
@@ -275,7 +269,8 @@ async function applyMissedSchedulePolicy(
         error_message:
           "Scheduled time was missed by more than 6 hours. Skipped to avoid stale posting.",
       })
-      .eq("id", job.id);
+      .eq("id", job.id)
+      .in("status", ["pending", "ready", "retrying"]);
 
     await logAutomationActivity(admin, {
       organisationId: job.organisation_id,
@@ -304,7 +299,8 @@ async function applyMissedSchedulePolicy(
       locked_at: null,
       lock_token: null,
     })
-    .eq("id", job.id);
+    .eq("id", job.id)
+    .in("status", ["pending", "ready", "retrying"]);
 
   await logAutomationActivity(admin, {
     organisationId: job.organisation_id,
@@ -320,42 +316,65 @@ async function applyMissedSchedulePolicy(
   return "reschedule";
 }
 
+type JobStatus = Database["public"]["Enums"]["publish_job_status"];
+type JobUpdate = Database["public"]["Tables"]["social_publish_jobs"]["Update"];
+
+export function newLockToken() {
+  return randomBytes(16).toString("hex");
+}
+
 /**
- * Atomically claim a due job. Only one worker wins.
+ * Atomically claim a job via the claim_publish_job RPC (single UPDATE ...
+ * WHERE status = ANY(allowed) RETURNING). Only one caller wins; a job that
+ * is already `processing` is never claimable. Returns null when not won.
  */
 export async function claimPublishJob(
   admin: Admin,
   jobId: string,
-  lockToken: string
+  lockToken: string,
+  allowedStates: JobStatus[] = ["pending", "ready", "retrying"]
 ) {
-  const now = new Date().toISOString();
+  const { data, error } = await admin.rpc("claim_publish_job", {
+    p_job_id: jobId,
+    p_lock_token: lockToken,
+    p_allowed_states: allowedStates,
+  });
+  if (error) throw new Error(`Could not claim publish job: ${error.message}`);
+  return (data && data[0]) || null;
+}
 
-  // Read current attempt first (claim uses status guard for locking)
-  const { data: before } = await admin
+/**
+ * Write to a job only while this worker still holds it: status must still be
+ * `processing` and lock_token must match (null for rows already unlocked,
+ * e.g. verified-later posts). Returns false if the lock was lost.
+ */
+export async function updateLockedJob(
+  admin: Admin,
+  job: { id: string; lock_token?: string | null },
+  patch: JobUpdate
+) {
+  let query = admin
     .from("social_publish_jobs")
-    .select("attempt_count")
-    .eq("id", jobId)
-    .maybeSingle();
-
-  const nextAttempt = (before?.attempt_count || 0) + 1;
-
-  const { data: claimed } = await admin
-    .from("social_publish_jobs")
-    .update({
-      status: "processing",
-      locked_at: now,
-      lock_token: lockToken,
-      last_attempt_at: now,
-      attempt_count: nextAttempt,
-    })
-    .eq("id", jobId)
-    .in("status", ["pending", "ready", "retrying"])
-    .select(
-      "id, organisation_id, content_id, content_platform_id, social_account_id, platform, attempt_count, max_attempts, created_by, scheduled_at, external_post_id, published_at, content_version_hash, payload_snapshot, idempotency_key, status, target_external_account_id"
-    )
-    .maybeSingle();
-
-  return claimed;
+    .update(patch)
+    .eq("id", job.id)
+    .eq("status", "processing");
+  query = job.lock_token
+    ? query.eq("lock_token", job.lock_token)
+    : query.is("lock_token", null);
+  const { data, error } = await query.select("id");
+  if (error || !data?.length) {
+    console.error(
+      JSON.stringify({
+        scope: "publishing",
+        job_id: job.id,
+        lock_lost: true,
+        error: error?.message ?? null,
+        attempted_status: patch.status ?? null,
+      })
+    );
+    return false;
+  }
+  return true;
 }
 
 async function markRetryOrFail(
@@ -368,6 +387,7 @@ async function markRetryOrFail(
     attempt_count: number;
     max_attempts: number;
     social_account_id: string;
+    lock_token?: string | null;
   },
   classified: {
     type: PublishErrorType;
@@ -382,18 +402,16 @@ async function markRetryOrFail(
   if (canRetry) {
     const delay = retryDelayMs(job.attempt_count);
     const nextRetry = new Date(Date.now() + delay).toISOString();
-    await admin
-      .from("social_publish_jobs")
-      .update({
-        status: "retrying",
-        next_retry_at: nextRetry,
-        error_type: classified.type,
-        error_code: classified.code || classified.type,
-        error_message: classified.message,
-        locked_at: null,
-        lock_token: null,
-      })
-      .eq("id", job.id);
+    const ok = await updateLockedJob(admin, job, {
+      status: "retrying",
+      next_retry_at: nextRetry,
+      error_type: classified.type,
+      error_code: classified.code || classified.type,
+      error_message: classified.message,
+      locked_at: null,
+      lock_token: null,
+    });
+    if (!ok) return { lockLost: true as const };
 
     await logAutomationActivity(admin, {
       organisationId: job.organisation_id,
@@ -409,17 +427,15 @@ async function markRetryOrFail(
     return { retrying: true as const, nextRetry };
   }
 
-  await admin
-    .from("social_publish_jobs")
-    .update({
-      status: "failed",
-      error_type: classified.type,
-      error_code: classified.code || classified.type,
-      error_message: classified.message,
-      locked_at: null,
-      lock_token: null,
-    })
-    .eq("id", job.id);
+  const failedOk = await updateLockedJob(admin, job, {
+    status: "failed",
+    error_type: classified.type,
+    error_code: classified.code || classified.type,
+    error_message: classified.message,
+    locked_at: null,
+    lock_token: null,
+  });
+  if (!failedOk) return { lockLost: true as const };
 
   if (
     classified.type === "AUTHENTICATION_ERROR" ||
@@ -479,6 +495,8 @@ export async function processClaimedPublishJob(
     payload_snapshot: Json;
     idempotency_key: string | null;
     target_external_account_id?: string | null;
+    /** Token from claim_publish_job; every write below must match it. */
+    lock_token?: string | null;
   },
   options?: { force?: boolean }
 ) {
@@ -488,16 +506,13 @@ export async function processClaimedPublishJob(
 
   // IDEMPOTENCY: never publish twice
   if (job.external_post_id || job.published_at) {
-    await admin
-      .from("social_publish_jobs")
-      .update({
-        status: "published",
-        error_type: "DUPLICATE_GUARD",
-        error_message: "Already published — duplicate blocked.",
-        locked_at: null,
-        lock_token: null,
-      })
-      .eq("id", job.id);
+    await updateLockedJob(admin, job, {
+      status: "published",
+      error_type: "DUPLICATE_GUARD",
+      error_message: "Already published — duplicate blocked.",
+      locked_at: null,
+      lock_token: null,
+    });
 
     await observe({
       organisationId: job.organisation_id,
@@ -521,18 +536,15 @@ export async function processClaimedPublishJob(
       .eq("id", job.content_platform_id)
       .maybeSingle();
     if (cp?.external_post_id && cp.publish_status === "published") {
-      await admin
-        .from("social_publish_jobs")
-        .update({
-          status: "published",
-          published_at: new Date().toISOString(),
-          external_post_id: cp.external_post_id,
-          error_type: "DUPLICATE_GUARD",
-          error_message: "Platform row already published.",
-          locked_at: null,
-          lock_token: null,
-        })
-        .eq("id", job.id);
+      await updateLockedJob(admin, job, {
+        status: "published",
+        published_at: new Date().toISOString(),
+        external_post_id: cp.external_post_id,
+        error_type: "DUPLICATE_GUARD",
+        error_message: "Platform row already published.",
+        locked_at: null,
+        lock_token: null,
+      });
       return { success: true, duplicate: true };
     }
   }
@@ -563,17 +575,14 @@ export async function processClaimedPublishJob(
   );
   if (!modeGate.ok) {
     if (modeGate.hold) {
-      await admin
-        .from("social_publish_jobs")
-        .update({
-          status: "pending",
-          error_type: modeGate.errorType || null,
-          error_message: modeGate.message,
-          locked_at: null,
-          lock_token: null,
-          scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
-        })
-        .eq("id", job.id);
+      await updateLockedJob(admin, job, {
+        status: "pending",
+        error_type: modeGate.errorType || null,
+        error_message: modeGate.message,
+        locked_at: null,
+        lock_token: null,
+        scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+      });
       return { held: true, reason: modeGate.errorType };
     }
 
@@ -650,18 +659,15 @@ export async function processClaimedPublishJob(
       job.organisation_id
     );
     if (fresh && fresh.versionHash !== job.content_version_hash) {
-      await admin
-        .from("social_publish_jobs")
-        .update({
-          status: "cancelled",
-          error_type: "STALE_CONTENT",
-          error_code: "STALE_CONTENT",
-          error_message:
-            "Content was edited after scheduling. Re-queue to publish the latest version.",
-          locked_at: null,
-          lock_token: null,
-        })
-        .eq("id", job.id);
+      await updateLockedJob(admin, job, {
+        status: "cancelled",
+        error_type: "STALE_CONTENT",
+        error_code: "STALE_CONTENT",
+        error_message:
+          "Content was edited after scheduling. Re-queue to publish the latest version.",
+        locked_at: null,
+        lock_token: null,
+      });
 
       await logAutomationActivity(admin, {
         organisationId: job.organisation_id,
@@ -696,6 +702,10 @@ export async function processClaimedPublishJob(
     publishJobId: job.id,
     simulated,
     expectedExternalAccountId: job.target_external_account_id ?? null,
+    // Crash marker: from here the provider may have received the request.
+    // If we lost the lock, abort before sending anything.
+    onBeforeProviderRequest: () =>
+      updateLockedJob(admin, job, { request_sent_at: new Date().toISOString() }),
   });
 
   if (!("success" in result) || !result.success) {
@@ -726,20 +736,17 @@ export async function processClaimedPublishJob(
           job.content_platform_id
         );
         if (verified) {
-          await admin
-            .from("social_publish_jobs")
-            .update({
-              status: "published",
-              published_at: new Date().toISOString(),
-              external_post_id: verified.externalPostId,
-              external_url: verified.externalUrl || null,
-              error_message: null,
-              error_type: null,
-              locked_at: null,
-              lock_token: null,
-              simulated,
-            })
-            .eq("id", job.id);
+          await updateLockedJob(admin, job, {
+            status: "published",
+            published_at: new Date().toISOString(),
+            external_post_id: verified.externalPostId,
+            external_url: verified.externalUrl || null,
+            error_message: null,
+            error_type: null,
+            locked_at: null,
+            lock_token: null,
+            simulated,
+          });
 
           await logAutomationActivity(admin, {
             organisationId: job.organisation_id,
@@ -838,20 +845,19 @@ export async function processClaimedPublishJob(
   }
 
   const publishedAt = new Date().toISOString();
-  await admin
-    .from("social_publish_jobs")
-    .update({
-      status: result.status === "published" ? "published" : "processing",
-      published_at: result.status === "published" ? publishedAt : null,
-      external_post_id: result.externalPostId || null,
-      external_url: result.externalUrl || null,
-      error_message: null,
-      error_type: null,
-      locked_at: null,
-      lock_token: null,
-      simulated,
-    })
-    .eq("id", job.id);
+  // If this fails the post is still recorded on content_platforms
+  // (external_post_id), which the duplicate guard checks before any re-post.
+  await updateLockedJob(admin, job, {
+    status: result.status === "published" ? "published" : "processing",
+    published_at: result.status === "published" ? publishedAt : null,
+    external_post_id: result.externalPostId || null,
+    external_url: result.externalUrl || null,
+    error_message: null,
+    error_type: null,
+    locked_at: null,
+    lock_token: null,
+    simulated,
+  });
 
   await logAutomationActivity(admin, {
     organisationId: job.organisation_id,
@@ -930,10 +936,10 @@ async function tryVerifyExistingPublish(
  */
 export async function processDuePublishJobsReliable(limit = 15) {
   const admin = createAdminClient();
-  const now = new Date().toISOString();
-  const lockToken = randomBytes(16).toString("hex");
 
   const recovered = await recoverAbandonedLocks(admin);
+  // After recovery, so jobs it just released for a safe retry are due now.
+  const now = new Date().toISOString();
 
   const { data: duePending } = await admin
     .from("social_publish_jobs")
@@ -976,7 +982,7 @@ export async function processDuePublishJobsReliable(limit = 15) {
       continue;
     }
 
-    const claimed = await claimPublishJob(admin, row.id, lockToken);
+    const claimed = await claimPublishJob(admin, row.id, newLockToken());
     if (!claimed) {
       results.push({ jobId: row.id, skipped: "lock_lost" });
       continue;
@@ -1003,15 +1009,20 @@ export async function processDuePublishJobsReliable(limit = 15) {
 }
 
 /**
- * Release abandoned processing locks (crashed workers) so jobs can resume safely.
- * Jobs that already have an external_post_id stay in processing for verification poll.
+ * Recover processing jobs whose worker died (lock older than LOCK_TTL_MS):
+ * - external_post_id known → stay processing; the poll verifies it.
+ * - request_sent_at set → the provider may have accepted the post: move to
+ *   `uncertain` and hold for a person to check. NEVER retried automatically.
+ * - request never sent → safe to retry.
+ * Each transition matches the stale lock token, so a live worker that still
+ * holds the lock is never disturbed.
  */
-async function recoverAbandonedLocks(admin: Admin) {
+export async function recoverAbandonedLocks(admin: Admin) {
   const cutoff = new Date(Date.now() - LOCK_TTL_MS).toISOString();
   const { data: stale } = await admin
     .from("social_publish_jobs")
     .select(
-      "id, organisation_id, platform, external_post_id, locked_at, attempt_count"
+      "id, organisation_id, platform, external_post_id, locked_at, lock_token, attempt_count, request_sent_at, content_platform_id"
     )
     .eq("status", "processing")
     .or(`locked_at.is.null,locked_at.lt.${cutoff}`)
@@ -1024,20 +1035,57 @@ async function recoverAbandonedLocks(admin: Admin) {
       continue;
     }
 
-    await admin
-      .from("social_publish_jobs")
-      .update({
-        status: "retrying",
-        next_retry_at: new Date().toISOString(),
+    if (job.request_sent_at) {
+      const message =
+        "The publishing worker stopped after sending this post to the platform, so it may already be live. Check the account before retrying.";
+      const ok = await updateLockedJob(admin, job, {
+        status: "uncertain",
+        hold_reason: "UNCERTAIN_OUTCOME",
+        held_at: new Date().toISOString(),
         locked_at: null,
         lock_token: null,
-        error_type: "NETWORK_ERROR",
-        error_code: "ABANDONED_LOCK",
-        error_message:
-          "Previous publish attempt lost its lock (worker timeout). Safe retry scheduled.",
-      })
-      .eq("id", job.id)
-      .eq("status", "processing");
+        error_type: "AMBIGUOUS_TIMEOUT",
+        error_code: "UNCERTAIN_OUTCOME",
+        error_message: message,
+      });
+      if (!ok) continue;
+      if (job.content_platform_id) {
+        await admin
+          .from("content_platforms")
+          .update({ publish_status: "held", error_message: message })
+          .eq("id", job.content_platform_id);
+      }
+      await logAutomationActivity(admin, {
+        organisationId: job.organisation_id,
+        eventType: "publish_uncertain",
+        message: humanPublishMessage({
+          platform: job.platform,
+          errorType: "AMBIGUOUS_TIMEOUT",
+          message,
+        }),
+        severity: "error",
+        metadata: { job_id: job.id, request_sent_at: job.request_sent_at },
+      });
+      await notifyAutomationIssue({
+        organisationId: job.organisation_id,
+        title: `${job.platform} post may already be live`,
+        body: message,
+      });
+      recovered += 1;
+      continue;
+    }
+
+    const ok = await updateLockedJob(admin, job, {
+      status: "retrying",
+      next_retry_at: new Date().toISOString(),
+      locked_at: null,
+      lock_token: null,
+      error_type: "NETWORK_ERROR",
+      error_code: "ABANDONED_LOCK",
+      error_message:
+        "Previous publish attempt stopped before contacting the platform. Safe retry scheduled.",
+    });
+    if (!ok) continue;
 
     await logAutomationActivity(admin, {
       organisationId: job.organisation_id,
@@ -1063,6 +1111,8 @@ async function pollProcessingPublishesReliable(admin: Admin) {
     )
     .eq("status", "processing")
     .not("external_post_id", "is", null)
+    // Only rows no worker holds (the success write clears the lock).
+    .is("lock_token", null)
     .limit(20);
 
   for (const row of rows || []) {
@@ -1082,14 +1132,12 @@ async function pollProcessingPublishesReliable(admin: Admin) {
       );
       if (status.status === "published") {
         const publishedAt = new Date().toISOString();
-        await admin
-          .from("social_publish_jobs")
-          .update({
-            status: "published",
-            published_at: publishedAt,
-            error_message: null,
-          })
-          .eq("id", row.id);
+        const ok = await updateLockedJob(
+          admin,
+          { id: row.id, lock_token: null },
+          { status: "published", published_at: publishedAt, error_message: null }
+        );
+        if (!ok) continue;
         if (row.content_platform_id) {
           await admin
             .from("content_platforms")
@@ -1128,6 +1176,7 @@ async function pollProcessingPublishesReliable(admin: Admin) {
             attempt_count: 4,
             max_attempts: 4,
             social_account_id: row.social_account_id,
+            lock_token: null,
           },
           {
             type: "PLATFORM_ERROR",

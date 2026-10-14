@@ -20,6 +20,9 @@ function fakeAdapter(platform: SocialPlatform): SocialPlatformAdapter {
     },
     validatePublish: () => [],
     publish: async (_token, account, input: PublishContentInput) => {
+      if (itest.publishDelayMs) {
+        await new Promise((r) => setTimeout(r, itest.publishDelayMs));
+      }
       itest.postCounter += 1;
       itest.publishCalls.push({
         platform,

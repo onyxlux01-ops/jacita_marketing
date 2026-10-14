@@ -108,6 +108,8 @@ export function PlatformPublishPanel({
                         contentPlatformId: row.id,
                       });
                       if ("error" in res && res.error) toast.error(res.error);
+                      else if ("inProgress" in res && res.inProgress)
+                        toast.info(res.message);
                       else toast.success("Publish started");
                     });
                   }}
@@ -127,6 +129,8 @@ export function PlatformPublishPanel({
                         contentPlatformId: row.id,
                       });
                       if ("error" in res && res.error) toast.error(res.error);
+                      else if ("inProgress" in res && res.inProgress)
+                        toast.info(res.message);
                       else toast.success("Retry started");
                     });
                   }}
