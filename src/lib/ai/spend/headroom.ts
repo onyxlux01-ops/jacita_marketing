@@ -33,7 +33,8 @@ export async function checkAiHeadroom(
       : 0;
   const spend = Number(totals.month_spend_pence);
   const budget = Number(totals.monthly_budget_pence);
-  if (spend + oneCall > budget) {
+  // Same comparison as the database (exact numeric), minus float noise.
+  if (spend + oneCall > budget + 1e-6) {
     return new AiSpendError(
       "AI_BUDGET_EXCEEDED",
       `This business has reached its AI budget for this month (estimated ${formatPence(spend)} used of ${formatPence(budget)}), so automation was skipped.`,

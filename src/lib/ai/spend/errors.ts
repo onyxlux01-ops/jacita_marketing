@@ -67,12 +67,12 @@ export function refusalMessage(
     case "AI_BUDGET_EXCEEDED":
       return {
         code,
-        message: `This business has reached its AI budget for this month (estimated ${formatPence(spend)} used of ${formatPence(budget)}). An owner or manager can change the budget in Settings → AI usage.`,
+        message: `This business has reached its AI budget for this month (estimated ${formatPence(spend)} used of ${formatPence(budget)}). Only the platform admin can change the budget.`,
       };
     case "AI_DAILY_IMAGE_CAP":
       return {
         code,
-        message: `This business has used ${images} of its ${cap} AI images for today. The limit resets at midnight business time; an owner or manager can change it in Settings → AI usage.`,
+        message: `This business has used ${images} of its ${cap} AI images for today. The limit resets at midnight business time; only the platform admin can change it.`,
       };
     case "AI_CONCURRENCY_LIMIT":
       return {

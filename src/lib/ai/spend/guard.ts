@@ -9,6 +9,7 @@ import {
   estimateTextPence,
   getModelPrice,
   imageQualityOf,
+  imageTablePence,
   textPenceFromUsage,
   type ImageModelPrice,
   type TextModelPrice,
@@ -33,8 +34,19 @@ import {
  *   the provider may have billed it.
  */
 
-export const TEXT_TIMEOUT_MS = 90_000;
-export const IMAGE_TIMEOUT_MS = 180_000;
+/**
+ * Timeouts and retry backoff. Mutable so tests can shorten them; nothing in
+ * the app changes them at runtime.
+ */
+export const aiGuardConfig = {
+  textTimeoutMs: 90_000,
+  imageTimeoutMs: 180_000,
+  /** First retry waits this long, doubling per attempt. */
+  retryBaseMs: 500,
+  /** Never wait longer than this before a retry (also caps retry-after). */
+  retryMaxWaitMs: 10_000,
+};
+
 export const TEXT_MAX_ATTEMPTS = 2;
 export const IMAGE_MAX_ATTEMPTS = 1;
 export const MAX_REFERENCE_IMAGES = 2;
@@ -89,6 +101,31 @@ function notServed(error: unknown) {
 function retryable(error: unknown) {
   const e = unwrap(error);
   return APICallError.isInstance(e) && e.isRetryable;
+}
+
+/**
+ * How long to wait before retrying: the provider's retry-after (seconds or
+ * HTTP date) / retry-after-ms when present, else exponential backoff;
+ * capped either way.
+ */
+export function retryDelayMs(error: unknown, attempt: number) {
+  const e = unwrap(error);
+  const headers = APICallError.isInstance(e) ? e.responseHeaders ?? {} : {};
+  const lower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = String(v);
+  let wait: number | null = null;
+  const ms = Number(lower["retry-after-ms"]);
+  if (Number.isFinite(ms) && ms >= 0) wait = ms;
+  else if (lower["retry-after"] !== undefined) {
+    const secs = Number(lower["retry-after"]);
+    if (Number.isFinite(secs) && secs >= 0) wait = secs * 1000;
+    else {
+      const at = Date.parse(lower["retry-after"]);
+      if (Number.isFinite(at)) wait = Math.max(0, at - Date.now());
+    }
+  }
+  if (wait === null) wait = aiGuardConfig.retryBaseMs * 2 ** Math.max(0, attempt - 1);
+  return Math.min(wait, aiGuardConfig.retryMaxWaitMs);
 }
 
 function errorCode(error: unknown) {
@@ -173,7 +210,10 @@ async function guarded<T>(input: {
     } catch (error) {
       if (notServed(error)) {
         await releaseAiSpend(usageId, errorCode(error));
-        if (retryable(error) && attempt < input.maxAttempts) continue;
+        if (retryable(error) && attempt < input.maxAttempts) {
+          await new Promise((r) => setTimeout(r, retryDelayMs(error, attempt)));
+          continue;
+        }
       } else {
         const usage = usageOf(error);
         await commitAiSpend(usageId, {
@@ -214,7 +254,7 @@ export const guardedGenerateText: typeof generateText = (async (options: Paramet
     estimatedPence: estimateTextPence(price, chars, maxOutputTokens),
     imageCount: 0,
     maxAttempts: TEXT_MAX_ATTEMPTS,
-    timeoutMs: TEXT_TIMEOUT_MS,
+    timeoutMs: aiGuardConfig.textTimeoutMs,
     callerSignal: options.abortSignal,
     call: (signal) =>
       generateText({ ...options, maxOutputTokens, maxRetries: 0, abortSignal: signal }),
@@ -263,9 +303,15 @@ export const guardedGenerateImage: typeof generateImage = (async (options: Param
     }),
     imageCount: count,
     maxAttempts: IMAGE_MAX_ATTEMPTS,
-    timeoutMs: IMAGE_TIMEOUT_MS,
+    timeoutMs: aiGuardConfig.imageTimeoutMs,
     callerSignal: options.abortSignal,
     call: (signal) => generateImage({ ...options, maxRetries: 0, abortSignal: signal }),
-    actualPence: (result, error) => textPenceFromUsage(price, usageOf(result ?? error)),
+    // Recorded cost: the larger of the token-based cost (when the response
+    // reports usage) and the per-image table cost.
+    actualPence: (result, error) =>
+      Math.max(
+        textPenceFromUsage(price, usageOf(result ?? error)) ?? 0,
+        imageTablePence(price, { count, size: options.size ?? null, quality, referenceImages: references })
+      ),
   });
 }) as typeof generateImage;

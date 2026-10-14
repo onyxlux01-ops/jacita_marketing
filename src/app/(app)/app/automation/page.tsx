@@ -22,10 +22,8 @@ import {
 import { getPublishingDashboard } from "@/lib/social/publishing-dashboard";
 import { getMetaSurfaceForOrganisation } from "@/lib/ads/service";
 import { getAiProviderHealth } from "@/lib/ai";
-import { runWithAiSpend } from "@/lib/ai/spend";
 import {
   getActiveOrganisation,
-  getSessionUser,
   getUserOrganisations,
 } from "@/lib/org";
 
@@ -46,7 +44,6 @@ export default async function AutomationPage() {
 
   const supabase = await createClient();
   const admin = createAdminClient();
-  const user = await getSessionUser();
   await ensureAutomationSettings(admin, active.id);
 
   const [
@@ -84,11 +81,8 @@ export default async function AutomationPage() {
       .eq("id", active.id)
       .maybeSingle(),
     getMetaSurfaceForOrganisation(active.id).catch(() => null),
-    // The live probe is a (tiny) paid call: charge it to this business.
-    runWithAiSpend(
-      { task: "health_probe", organisationId: active.id, userId: user?.id ?? null },
-      () => getAiProviderHealth()
-    ),
+    // Free models-list check, cached for 10 minutes (not an AI call).
+    getAiProviderHealth(),
   ]);
 
   const attentionWithAi = aiHealth.live

@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 
-/** Bounds match the ai_settings check constraints. */
+/** Bounds match set_ai_limits() and the ai_settings check constraints. */
 const MAX_BUDGET_PENCE = 1_000_000;
 const MAX_IMAGE_CAP = 1_000;
 
 /**
  * Change a business's monthly AI budget and daily AI image cap.
- * Owner / manager (or platform admin) only — also enforced by RLS on
- * ai_settings, so a staff member's direct write is refused too.
+ * Platform admin only: every business shares the operator's provider key.
+ * Enforced by set_ai_limits() in the database (owners and managers see the
+ * limits read-only); the check here only gives a clearer message.
  */
 export async function updateAiLimits(input: {
   organisationId: string;
@@ -33,52 +34,21 @@ export async function updateAiLimits(input: {
     return { error: `Daily image limit must be a whole number from 0 to ${MAX_IMAGE_CAP}.` };
   }
 
-  const [{ data: membership }, { data: profile }] = await Promise.all([
-    supabase
-      .from("organisation_members")
-      .select("role")
-      .eq("organisation_id", input.organisationId)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-    supabase.from("users").select("is_platform_admin").eq("id", user.id).maybeSingle(),
-  ]);
-  const canManage =
-    (membership && ["owner", "manager"].includes(membership.role)) ||
-    Boolean(profile?.is_platform_admin);
-  if (!canManage) {
-    return { error: "Only the owner or a manager can change AI limits." };
+  const { data: profile } = await supabase
+    .from("users")
+    .select("is_platform_admin")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile?.is_platform_admin) {
+    return { error: "Only the platform admin can change AI limits." };
   }
 
-  const { data: previous } = await supabase
-    .from("ai_settings")
-    .select("monthly_budget_pence, daily_image_cap")
-    .eq("organisation_id", input.organisationId)
-    .maybeSingle();
-
-  const { error } = await supabase.from("ai_settings").upsert(
-    {
-      organisation_id: input.organisationId,
-      monthly_budget_pence: budget,
-      daily_image_cap: cap,
-      updated_by: user.id,
-    },
-    { onConflict: "organisation_id" }
-  );
-  if (error) return { error: error.message };
-
-  await supabase.from("audit_logs").insert({
-    organisation_id: input.organisationId,
-    user_id: user.id,
-    action: "ai.limits_updated",
-    entity_type: "ai_settings",
-    entity_id: input.organisationId,
-    metadata: {
-      monthly_budget_pence: budget,
-      daily_image_cap: cap,
-      previous_monthly_budget_pence: previous?.monthly_budget_pence ?? 5000,
-      previous_daily_image_cap: previous?.daily_image_cap ?? 20,
-    },
+  const { error } = await supabase.rpc("set_ai_limits", {
+    p_organisation_id: input.organisationId,
+    p_monthly_budget_pence: budget,
+    p_daily_image_cap: cap,
   });
+  if (error) return { error: error.message };
 
   revalidatePath("/app/settings");
   return { success: true as const };

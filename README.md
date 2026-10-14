@@ -255,12 +255,16 @@ Follow these steps in order.
    where lower(a.email) = lower('operator@example.com');
    ```
 
-9. **AI spending limits.** Every paid AI call (all `/api/ai/*` routes, the
-   automation engine, the Automation page health check) now reserves an
-   estimated cost against the business budget before calling the provider.
+9. **AI spending limits.** Every paid AI call (all `/api/ai/*` routes and
+   the automation engine) now reserves an estimated cost against the
+   business budget before calling the provider. (The Automation page's
+   OpenAI check is a free models-list call, cached for 10 minutes.)
    - Each business gets **£50 per calendar month** (business time zone) and
-     **20 AI images per day** by default. Owners and managers change them in
-     Settings → AI usage; staff cannot.
+     **20 AI images per day** by default. Only the **platform admin** changes
+     them, in Settings → AI usage (every business shares the operator's
+     OpenAI key); owners, managers and staff see them read-only.
+   - The `/api/ai/*` routes declare `maxDuration = 300` seconds. On Vercel,
+     check the plan allows it.
    - **Confirm the price table** in `src/lib/ai/spend/prices.ts` against the
      provider's current pricing page before go-live. The values are
      estimates, and the image-model prices are guesses (see the file). A
@@ -291,9 +295,9 @@ Follow these steps in order.
     - [ ] Switching the Facebook Page / Instagram account shows the hold
       message.
     - [ ] The Spend limits form saves.
-    - [ ] Settings → AI usage shows this month's estimated spend and today's
-      image count; the limits save as owner/manager and are read-only for
-      staff.
+    - [ ] Settings → AI usage shows this month's spend (estimated and
+      actual) and today's image count; the limits save as the platform admin
+      and are read-only for everyone else.
     - [ ] One real publish to a dedicated test account.
 
 ## Remote Supabase

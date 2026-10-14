@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { currentAiSpend, runWithAiSpend } from "@/lib/ai/spend/context";
 import { AiSpendError, isAiSpendError } from "@/lib/ai/spend/errors";
 
@@ -70,20 +71,59 @@ function checkValue(value: unknown, key: string, depth: number) {
   }
 }
 
-/** Throws AiSpendError(AI_INPUT_TOO_LARGE) when a JSON body is out of bounds. */
-export async function assertAiInputBounds(request: Request) {
+/**
+ * Read the body with a byte limit: stops (and throws AI_INPUT_TOO_LARGE) as
+ * soon as more than maxBodyBytes arrive, so a chunked body without a
+ * content-length is never fully buffered.
+ */
+export async function readBodyLimited(request: Request): Promise<Uint8Array<ArrayBuffer>> {
+  const max = AI_INPUT_LIMITS.maxBodyBytes;
   const length = Number(request.headers.get("content-length") || 0);
-  if (length > AI_INPUT_LIMITS.maxBodyBytes) tooLarge("The request is too large.");
-  const raw = await request.clone().text();
-  if (raw.length > AI_INPUT_LIMITS.maxBodyBytes) tooLarge("The request is too large.");
-  if (!raw) return;
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return; // the handler reports malformed JSON as before
+  if (length > max) tooLarge("The request is too large.");
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      tooLarge("The request is too large.");
+    }
+    chunks.push(value);
   }
-  checkValue(body, "", 0);
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return bytes;
+}
+
+/**
+ * Bounds-check an AI route body. Returns a fresh Request carrying the same
+ * bytes for the handler. Throws AiSpendError(AI_INPUT_TOO_LARGE).
+ */
+export async function boundedAiRequest(request: Request): Promise<Request> {
+  const bytes = await readBodyLimited(request);
+  const raw = new TextDecoder().decode(bytes);
+  if (raw) {
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      body = undefined; // the handler reports malformed JSON as before
+    }
+    if (body !== undefined) checkValue(body, "", 0);
+  }
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : bytes,
+  });
 }
 
 export function aiSpendErrorResponse(error: AiSpendError) {
@@ -104,15 +144,24 @@ export function withAiRoute<A extends unknown[]>(
   handler: (request: Request, ...rest: A) => Promise<Response>
 ) {
   return async (request: Request, ...rest: A): Promise<Response> => {
+    // Signed-in users only, checked before the body is read. (Membership of
+    // the business in the body is checked by the handler's requireOrgAccess.)
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    let bounded: Request;
     try {
-      await assertAiInputBounds(request);
+      bounded = await boundedAiRequest(request);
     } catch (e) {
       if (isAiSpendError(e)) return aiSpendErrorResponse(e);
       throw e;
     }
     try {
       const { response, refusal } = await runWithAiSpend({ task }, async () => {
-        const response = await handler(request, ...rest);
+        const response = await handler(bounded, ...rest);
         return { response, refusal: currentAiSpend()?.refusal ?? null };
       });
       return refusal ? aiSpendErrorResponse(refusal) : response;

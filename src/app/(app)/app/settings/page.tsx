@@ -313,6 +313,9 @@ export default async function SettingsPage({
           aiUsage = {
             timezone: String(t.timezone ?? "Europe/London"),
             monthSpendPence: Number(t.month_spend_pence ?? 0),
+            monthEstimatedPence: Number(t.month_estimated_pence ?? 0),
+            monthActualPence: Number(t.month_actual_pence ?? 0),
+            monthCallsWithoutActual: Number(t.month_calls_without_actual ?? 0),
             monthlyBudgetPence: Number(t.monthly_budget_pence ?? 0),
             imagesToday: Number(t.images_today ?? 0),
             dailyImageCap: Number(t.daily_image_cap ?? 0),
@@ -427,11 +430,7 @@ export default async function SettingsPage({
               key={org.id}
               organisationId={org.id}
               summary={aiUsage}
-              canEdit={
-                myRole === "owner" ||
-                myRole === "manager" ||
-                Boolean(user?.is_platform_admin)
-              }
+              canEdit={Boolean(user?.is_platform_admin)}
             />
           ) : null}
 

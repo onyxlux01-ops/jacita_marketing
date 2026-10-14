@@ -930,20 +930,29 @@ async function runAutomationInSpendContext(input: RunAutomationInput) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Automation failed";
     const aiCode = isAiSpendError(e) ? e.code : null;
-    await setAutomationState(admin, organisationId, "error", message);
+    // An AI limit is not a fault: the run pauses until there is budget again
+    // (the next due run re-checks it), with its own title and state.
+    const aiTitle =
+      aiCode === "AI_BUDGET_EXCEEDED"
+        ? "Paused: AI budget reached"
+        : aiCode
+          ? "Paused: AI limit reached"
+          : null;
+    const state = aiTitle ? "paused" : "error";
+    await setAutomationState(admin, organisationId, state, aiTitle ? `${aiTitle}. ${message}` : message);
     await admin
       .from("automation_runs")
       .update({
-        status: "failed",
+        status: aiTitle ? "paused" : "failed",
         completed_at: new Date().toISOString(),
         actions_taken: actionsTaken,
         errors: [message] as unknown as Json,
-        summary: message,
+        summary: aiTitle ? `${aiTitle}. ${message}` : message,
       })
       .eq("id", runId);
     await admin
       .from("automation_settings")
-      .update({ last_error: message, current_state: "error" })
+      .update({ last_error: message, current_state: state })
       .eq("organisation_id", organisationId);
     await logAutomationActivity(admin, {
       organisationId,
@@ -955,7 +964,7 @@ async function runAutomationInSpendContext(input: RunAutomationInput) {
     });
     await notifyAutomationIssue({
       organisationId,
-      title: "Automation failed",
+      title: aiTitle ?? "Automation failed",
       body: message.slice(0, 280),
     });
     return {

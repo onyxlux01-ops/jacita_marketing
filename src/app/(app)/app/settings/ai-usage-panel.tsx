@@ -10,14 +10,23 @@ import { Label } from "@/components/ui/label";
 
 export type AiUsageSummary = {
   timezone: string;
+  /** Counted against the budget: actual cost where known, else the estimate. */
   monthSpendPence: number;
+  /** Up-front estimates for this month's calls. */
+  monthEstimatedPence: number;
+  /** Costs worked out from the token usage providers reported. */
+  monthActualPence: number;
+  /** Calls with no reported usage (reserved, timed out, or no usage data). */
+  monthCallsWithoutActual: number;
   monthlyBudgetPence: number;
   imagesToday: number;
   dailyImageCap: number;
 };
 
 function pounds(pence: number) {
-  return `£${(Math.max(0, pence) / 100).toFixed(2)}`;
+  const p = Math.max(0, pence);
+  // Small amounts in pence, so a few text calls do not show as £0.00.
+  return p > 0 && p < 100 ? `${p.toFixed(2)}p` : `£${(p / 100).toFixed(2)}`;
 }
 
 function Meter({ value, max, label }: { value: number; max: number; label: string }) {
@@ -84,23 +93,31 @@ export function AiUsagePanel({
         <h2 className="mt-2 font-heading text-lg font-semibold">AI spending limits</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           AI requests stop for this business when the monthly budget or the daily image
-          limit is reached. Amounts are estimates from the app&apos;s price table, not
-          the provider&apos;s bill.
+          limit is reached. All amounts come from the app&apos;s price table (to be
+          confirmed against the provider&apos;s pricing), not from the provider&apos;s bill.
         </p>
       </div>
 
       {summary ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 rounded-xl border border-border/70 px-4 py-3">
-            <p className="text-xs text-muted-foreground">This month (estimated)</p>
+            <p className="text-xs text-muted-foreground">This month, counted against the budget</p>
             <p className="text-sm font-medium">
               {pounds(summary.monthSpendPence)} of {pounds(summary.monthlyBudgetPence)}
             </p>
             <Meter
               value={summary.monthSpendPence}
               max={summary.monthlyBudgetPence}
-              label="Estimated AI spend this month"
+              label="AI spend counted this month"
             />
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-1 text-xs text-muted-foreground">
+              <dt>Estimated (up front)</dt>
+              <dd className="text-right">{pounds(summary.monthEstimatedPence)}</dd>
+              <dt>Actual (from usage)</dt>
+              <dd className="text-right">{pounds(summary.monthActualPence)}</dd>
+              <dt>Calls without usage data</dt>
+              <dd className="text-right">{summary.monthCallsWithoutActual}</dd>
+            </dl>
           </div>
           <div className="space-y-2 rounded-xl border border-border/70 px-4 py-3">
             <p className="text-xs text-muted-foreground">AI images today</p>
@@ -147,7 +164,7 @@ export function AiUsagePanel({
         </form>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Only the owner or a manager can change these limits.
+          Only the platform admin can change these limits.
         </p>
       )}
     </section>

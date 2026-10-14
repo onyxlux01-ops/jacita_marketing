@@ -156,9 +156,30 @@ export type AiProviderHealth = {
   message: string;
 };
 
-/** Lightweight live probe used by the Control Centre. */
+const HEALTH_TTL_MS = 10 * 60 * 1000;
+const HEALTH_TIMEOUT_MS = 10_000;
+
+type HealthCache = { at: number; key: string; value: AiProviderHealth };
+const healthStore = globalThis as unknown as { __jacitaAiHealth?: HealthCache | null };
+
+/** Test hook: forget the cached health result. */
+export function resetAiProviderHealthCache() {
+  healthStore.__jacitaAiHealth = null;
+}
+
+/**
+ * Provider check used by the Automation page. It looks the model up in
+ * OpenAI's models list (a free call: no tokens, no images), so it is not
+ * charged to any business and does not take a user's in-flight slot. The
+ * result is cached for 10 minutes per process.
+ *
+ * It proves the key works and the model is available to it; it cannot see
+ * whether the account has credit (a billing problem shows up on the first
+ * real call instead).
+ */
 export async function getAiProviderHealth(): Promise<AiProviderHealth> {
-  if (!hasOpenAIKey()) {
+  const key = process.env.OPENAI_API_KEY?.trim();
+  if (!key) {
     return {
       configured: false,
       live: false,
@@ -169,40 +190,62 @@ export async function getAiProviderHealth(): Promise<AiProviderHealth> {
     };
   }
 
+  const cached = healthStore.__jacitaAiHealth;
+  if (cached && cached.key === key && Date.now() - cached.at < HEALTH_TTL_MS) {
+    return cached.value;
+  }
+
+  let value: AiProviderHealth;
   try {
-    const { text } = await generateText({
-      model: getAiModel(),
-      prompt: "Reply with exactly: ok",
-      maxOutputTokens: 16,
+    const res = await fetch("https://api.openai.com/v1/models/gpt-5-mini", {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      cache: "no-store",
     });
-    if (!text?.trim()) {
-      return {
+    if (res.ok) {
+      value = {
         configured: true,
-        live: false,
-        model: "gpt-5-mini",
-        reason: "empty_output",
-        message: "OpenAI responded empty. Check the model and key.",
-      };
-    }
-    return {
-      configured: true,
-      live: true,
-      model: "gpt-5-mini",
-      reason: null,
-      message: "OpenAI is live for automation (gpt-5-mini).",
-    };
-  } catch (error) {
-    if (isAiSpendError(error)) {
-      return {
-        configured: true,
-        live: false,
+        live: true,
         model: "gpt-5-mini",
         reason: null,
-        message: `Live check skipped: ${error.message}`,
+        message: "OpenAI key works and gpt-5-mini is available.",
+      };
+    } else if (res.status === 401) {
+      value = {
+        configured: true,
+        live: false,
+        model: "gpt-5-mini",
+        reason: "invalid_key",
+        message: "OPENAI_API_KEY is invalid. Replace it in .env.local and Vercel.",
+      };
+    } else if (res.status === 404) {
+      value = {
+        configured: true,
+        live: false,
+        model: "gpt-5-mini",
+        reason: "api_error",
+        message: "gpt-5-mini is not available to this OpenAI key.",
+      };
+    } else if (res.status === 429) {
+      value = {
+        configured: true,
+        live: false,
+        model: "gpt-5-mini",
+        reason: "rate_limit",
+        message: "OpenAI rate limit hit. Retry shortly.",
+      };
+    } else {
+      value = {
+        configured: true,
+        live: false,
+        model: "gpt-5-mini",
+        reason: "api_error",
+        message: `OpenAI check failed (HTTP ${res.status}).`,
       };
     }
+  } catch (error) {
     const classified = classifyOpenAiError(error);
-    return {
+    value = {
       configured: true,
       live: false,
       model: "gpt-5-mini",
@@ -210,4 +253,7 @@ export async function getAiProviderHealth(): Promise<AiProviderHealth> {
       message: classified.detail,
     };
   }
+
+  healthStore.__jacitaAiHealth = { at: Date.now(), key, value };
+  return value;
 }

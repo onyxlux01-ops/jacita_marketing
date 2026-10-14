@@ -20,12 +20,13 @@ async function latency(signal?: AbortSignal) {
   });
 }
 
-function httpError(status: number, retryable: boolean) {
+function httpError(status: number, retryable: boolean, headers?: Record<string, string>) {
   return new APICallError({
     message: `[itest] mocked OpenAI HTTP ${status}`,
     url: "https://api.openai.invalid/v1/mock",
     requestBodyValues: {},
     statusCode: status,
+    responseHeaders: headers,
     isRetryable: retryable,
   });
 }
@@ -37,7 +38,9 @@ function textModel(modelId: string) {
     doGenerate: async (options) => {
       itest.aiCalls.push({ kind: "text", modelId });
       await latency(options.abortSignal);
-      if (itest.aiFail) throw httpError(itest.aiFail.status, itest.aiFail.retryable);
+      if (itest.aiFail) {
+        throw httpError(itest.aiFail.status, itest.aiFail.retryable, itest.aiFail.headers);
+      }
       // No reply configured: behave like an unavailable provider (not charged).
       if (!itest.aiText) throw httpError(503, false);
       const reply = itest.aiText();

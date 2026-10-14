@@ -12,6 +12,9 @@ export type AiSpendTotals = {
   month_start: string;
   day_start: string;
   month_spend_pence: number;
+  month_estimated_pence: number;
+  month_actual_pence: number;
+  month_calls_without_actual: number;
   monthly_budget_pence: number;
   images_today: number;
   daily_image_cap: number;

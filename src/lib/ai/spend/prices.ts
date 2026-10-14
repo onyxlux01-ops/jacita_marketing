@@ -65,8 +65,10 @@ export const AI_PRICE_TABLE: Record<string, TextModelPrice | ImageModelPrice> = 
     maxOutputTokens: 16_000,
     confirmed: false,
   },
-  "gpt-image-2.5-sunburst": GPT_IMAGE_GUESS,
   "gpt-image-2": GPT_IMAGE_GUESS,
+  // LEGACY: still used by the flyer code on main until the owner's switch to
+  // gpt-image-2 lands. Remove once nothing calls it.
+  "gpt-image-2.5-sunburst": GPT_IMAGE_GUESS,
 };
 
 /**
@@ -82,7 +84,8 @@ export function getModelPrice(modelId: string) {
 }
 
 function round4(pence: number) {
-  return Math.ceil(pence * 10_000) / 10_000;
+  // Round UP to 4 dp, ignoring float noise (0.1 + 3.2 must stay 3.3).
+  return Math.ceil(pence * 10_000 - 1e-6) / 10_000;
 }
 
 export function estimateTextInputTokens(promptChars: number) {
@@ -112,6 +115,16 @@ export function textPenceFromUsage(
 
 export function imageQualityOf(value: unknown): ImageQuality {
   return value === "low" || value === "medium" ? value : "high";
+}
+
+/** Table cost of the images themselves (no prompt tokens). */
+export function imageTablePence(
+  price: ImageModelPrice,
+  options: { count: number; size?: string | null; quality: ImageQuality; referenceImages: number }
+) {
+  const square = !options.size || options.size === "1024x1024";
+  const each = price.perImage[options.quality][square ? "square" : "tall"];
+  return round4(options.count * each + options.referenceImages * price.perReferenceImage);
 }
 
 /** Upper-bound pence for generating `count` images. */

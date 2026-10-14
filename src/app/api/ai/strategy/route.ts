@@ -9,6 +9,10 @@ import {
 } from "@/lib/ai";
 import { createClient } from "@/lib/supabase/server";
 
+// Longer than the AI guard timeouts (flyer worst case ~280s: 90s brief + up to
+// 10s retry backoff + 180s image; timeouts are not retried).
+export const maxDuration = 300;
+
 export const POST = withAiRoute("strategy", async function POST(request: Request) {
   const body = (await request.json()) as {
     organisation_id?: string;

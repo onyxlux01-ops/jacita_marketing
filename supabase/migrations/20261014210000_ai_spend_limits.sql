@@ -2,17 +2,23 @@
 -- AI spending limits (audit finding 10).
 --
 -- * ai_settings: per-business monthly AI budget (pence, default 5000 = £50)
---   and daily AI image cap (default 20). Owner/manager (or platform admin)
---   edit it; members read it. A business with no row uses the defaults.
+--   and daily AI image cap (default 20). Members read it. ONLY the platform
+--   admin changes it (every business shares the operator's provider key),
+--   through set_ai_limits(); there are no direct write grants. updated_by is
+--   set by a trigger. A business with no row uses the defaults.
 -- * ai_usage: the ledger. One row per paid provider attempt (retries are
 --   separate rows). Written ONLY by the server (service role) through the
 --   RPCs below; members can read their business's rows.
 --     reserved  -> an upper-bound estimate held before the provider call
 --     committed -> the call happened; costs coalesce(actual, estimated)
---     released  -> the call failed before being charged, or the reservation
---                  went stale (no settle within 15 minutes)
+--     released  -> the call failed before being charged
+--   A reservation not settled within 15 minutes is treated as charged: it
+--   becomes committed at its estimate with error_code = 'stale' (a late
+--   commit may still replace that with the actual cost). Over-counting is
+--   the safe direction.
 -- * reserve_ai_spend(): ONE transaction, per-business advisory lock (plus a
---   per-user lock): drops stale reservations, checks per-user concurrency,
+--   per-user lock): commits stale reservations at their estimate, checks
+--   per-user concurrency,
 --   the daily image cap and the monthly budget, then inserts a reserved row.
 --   Month and day are calendar periods in organisations.timezone.
 -- * Amounts are numeric pence (4 dp) so sub-penny text calls are not rounded
@@ -93,16 +99,8 @@ create policy ai_settings_select on public.ai_settings
   for select to authenticated
   using (private.is_org_member(organisation_id) or private.is_platform_admin());
 
-drop policy if exists ai_settings_insert on public.ai_settings;
-create policy ai_settings_insert on public.ai_settings
-  for insert to authenticated
-  with check (private.can_manage_org(organisation_id) or private.is_platform_admin());
-
-drop policy if exists ai_settings_update on public.ai_settings;
-create policy ai_settings_update on public.ai_settings
-  for update to authenticated
-  using (private.can_manage_org(organisation_id) or private.is_platform_admin())
-  with check (private.can_manage_org(organisation_id) or private.is_platform_admin());
+-- No insert/update policy for ai_settings: changes go through set_ai_limits()
+-- (platform admin only).
 
 drop policy if exists ai_usage_select on public.ai_usage;
 create policy ai_usage_select on public.ai_usage
@@ -111,14 +109,88 @@ create policy ai_usage_select on public.ai_usage
 -- No insert/update/delete policy for ai_usage: only the service role writes.
 
 -- -----------------------------------------------------------------------------
--- Grants: members read (RLS), settings writable by managers (RLS), the ledger
--- is written only by the server.
+-- Grants: members read (RLS). Neither table is writable from the browser:
+-- the ledger is written by the server, the limits by set_ai_limits().
 -- -----------------------------------------------------------------------------
 revoke all on public.ai_usage from anon, authenticated;
 revoke all on public.ai_settings from anon, authenticated;
 grant select on public.ai_usage to authenticated;
-grant select, insert, update on public.ai_settings to authenticated;
+grant select on public.ai_settings to authenticated;
 grant all on public.ai_usage, public.ai_settings to service_role;
+
+-- updated_by is always the signed-in user making the change (null for the
+-- service role), never a value supplied by the caller.
+create or replace function private.ai_settings_stamp()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_by := (select auth.uid());
+  return new;
+end;
+$$;
+
+revoke all on function private.ai_settings_stamp() from public, anon, authenticated;
+
+drop trigger if exists ai_settings_stamp on public.ai_settings;
+create trigger ai_settings_stamp
+  before insert or update on public.ai_settings
+  for each row
+  execute function private.ai_settings_stamp();
+
+-- -----------------------------------------------------------------------------
+-- Change a business's limits: platform admin only.
+-- -----------------------------------------------------------------------------
+create or replace function public.set_ai_limits(
+  p_organisation_id uuid,
+  p_monthly_budget_pence integer,
+  p_daily_image_cap integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_prev public.ai_settings%rowtype;
+begin
+  if not private.is_platform_admin() then
+    raise exception 'Only the platform admin can change AI limits' using errcode = '42501';
+  end if;
+  if p_monthly_budget_pence is null or p_monthly_budget_pence not between 0 and 1000000
+     or p_daily_image_cap is null or p_daily_image_cap not between 0 and 1000 then
+    raise exception 'AI limits out of range' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.organisations o where o.id = p_organisation_id) then
+    raise exception 'Business not found' using errcode = 'P0002';
+  end if;
+
+  select * into v_prev from public.ai_settings where organisation_id = p_organisation_id;
+
+  insert into public.ai_settings (organisation_id, monthly_budget_pence, daily_image_cap)
+  values (p_organisation_id, p_monthly_budget_pence, p_daily_image_cap)
+  on conflict (organisation_id) do update
+    set monthly_budget_pence = excluded.monthly_budget_pence,
+        daily_image_cap = excluded.daily_image_cap;
+
+  insert into public.audit_logs (organisation_id, user_id, action, entity_type, entity_id, metadata)
+  values (
+    p_organisation_id, (select auth.uid()), 'ai.limits_updated', 'ai_settings', p_organisation_id,
+    jsonb_build_object(
+      'monthly_budget_pence', p_monthly_budget_pence,
+      'daily_image_cap', p_daily_image_cap,
+      'previous_monthly_budget_pence', coalesce(v_prev.monthly_budget_pence, 5000),
+      'previous_daily_image_cap', coalesce(v_prev.daily_image_cap, 20)
+    )
+  );
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.set_ai_limits(uuid, integer, integer) from public, anon, authenticated;
+grant execute on function public.set_ai_limits(uuid, integer, integer) to authenticated, service_role;
 
 -- -----------------------------------------------------------------------------
 -- Totals for one business at a point in time (service role only; p_at is a
@@ -144,6 +216,9 @@ declare
   v_budget integer;
   v_cap integer;
   v_spend numeric;
+  v_estimated numeric;
+  v_actual numeric;
+  v_no_actual integer;
   v_images integer;
 begin
   select coalesce(nullif(o.timezone, ''), 'Europe/London') into v_tz
@@ -171,8 +246,9 @@ begin
   v_budget := coalesce(v_budget, 5000);
   v_cap := coalesce(v_cap, 20);
 
-  -- Committed rows cost their actual (else estimated) amount; live
-  -- reservations hold their estimate; stale reservations and released rows
+  -- Committed rows cost their actual (else estimated) amount. Reservations
+  -- hold their estimate whatever their age (one that is never settled turns
+  -- into a committed 'stale' row at the next reservation). Released rows
   -- cost nothing.
   select
     coalesce(sum(
@@ -180,24 +256,34 @@ begin
         when u.status = 'committed' then coalesce(u.actual_cost_pence, u.estimated_cost_pence)
         else u.estimated_cost_pence
       end
-    ) filter (where u.created_at >= v_month_start and u.created_at < v_month_end), 0),
-    coalesce(sum(u.image_count)
-      filter (where u.created_at >= v_day_start and u.created_at < v_day_end), 0)
-  into v_spend, v_images
-  from public.ai_usage u
-  where u.organisation_id = p_organisation_id
-    and u.created_at >= least(v_month_start, v_day_start)
-    and u.created_at < greatest(v_month_end, v_day_end)
-    and (
-      u.status = 'committed'
-      or (u.status = 'reserved' and u.created_at > p_at - interval '15 minutes')
-    );
+    ) filter (where in_month), 0),
+    coalesce(sum(u.estimated_cost_pence) filter (where in_month), 0),
+    coalesce(sum(u.actual_cost_pence)
+      filter (where in_month and u.status = 'committed' and u.actual_cost_pence is not null), 0),
+    count(*) filter (where in_month and (u.status = 'reserved' or u.actual_cost_pence is null)),
+    coalesce(sum(u.image_count) filter (where in_day), 0)
+  into v_spend, v_estimated, v_actual, v_no_actual, v_images
+  from (
+    select x.*,
+      (x.created_at >= v_month_start and x.created_at < v_month_end) as in_month,
+      (x.created_at >= v_day_start and x.created_at < v_day_end) as in_day
+    from public.ai_usage x
+    where x.organisation_id = p_organisation_id
+      and x.created_at >= least(v_month_start, v_day_start)
+      and x.created_at < greatest(v_month_end, v_day_end)
+      and x.status in ('committed', 'reserved')
+  ) u;
 
   return jsonb_build_object(
     'timezone', v_tz,
     'month_start', v_month_start,
     'day_start', v_day_start,
+    -- what the budget is checked against: actual where known, else estimate
     'month_spend_pence', v_spend,
+    -- shown separately (audit): up-front estimates vs. costs from reported usage
+    'month_estimated_pence', v_estimated,
+    'month_actual_pence', v_actual,
+    'month_calls_without_actual', v_no_actual,
     'monthly_budget_pence', v_budget,
     'images_today', v_images,
     'daily_image_cap', v_cap
@@ -286,9 +372,11 @@ begin
     return jsonb_build_object('ok', false, 'code', 'AI_NOT_FOUND', 'error', 'Business not found');
   end if;
 
-  -- Stale reservations (no settle within 15 minutes) stop counting.
+  -- A reservation not settled within 15 minutes is treated as charged at its
+  -- estimate (the call may have run and the settle been lost). It stops
+  -- counting towards the user's in-flight limit, but not towards the budget.
   update public.ai_usage
-  set status = 'released', error_code = 'stale', settled_at = now()
+  set status = 'committed', error_code = 'stale', settled_at = now()
   where organisation_id = p_organisation_id
     and status = 'reserved'
     and created_at <= now() - interval '15 minutes';
@@ -348,9 +436,11 @@ comment on function public.reserve_ai_spend(uuid, uuid, text, text, text, numeri
 -- -----------------------------------------------------------------------------
 -- Settle a reservation (service role only).
 --   commit : the provider call happened (cost = actual, else estimate). Also
---            accepted for a reservation already marked stale, so a slow call
---            that did complete is still counted.
---   release: the call failed without being charged.
+--            accepted for a reservation already committed as 'stale', so a
+--            slow call that did complete replaces the estimate with its
+--            actual cost.
+--   release: the call failed without being charged. A 'stale' row stays
+--            committed (over-counting is the safe direction).
 -- -----------------------------------------------------------------------------
 create or replace function public.commit_ai_spend(
   p_usage_id uuid,
@@ -370,10 +460,13 @@ begin
       actual_cost_pence = case when p_actual_pence is null or p_actual_pence < 0 then null else p_actual_pence end,
       input_tokens = case when p_input_tokens is null or p_input_tokens < 0 then null else p_input_tokens end,
       output_tokens = case when p_output_tokens is null or p_output_tokens < 0 then null else p_output_tokens end,
-      error_code = left(p_error_code, 64),
+      error_code = case
+        when status = 'committed' then left(coalesce(p_error_code, 'late_commit'), 64)
+        else left(p_error_code, 64)
+      end,
       settled_at = now()
   where id = p_usage_id
-    and (status = 'reserved' or (status = 'released' and error_code = 'stale'));
+    and (status = 'reserved' or (status = 'committed' and error_code = 'stale'));
   return found;
 end;
 $$;

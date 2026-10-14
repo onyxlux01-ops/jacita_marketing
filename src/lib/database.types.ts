@@ -3012,6 +3012,14 @@ export type Database = {
         }
         Returns: Json
       }
+      set_ai_limits: {
+        Args: {
+          p_daily_image_cap: number
+          p_monthly_budget_pence: number
+          p_organisation_id: string
+        }
+        Returns: Json
+      }
       schedule_content: {
         Args: {
           p_actor_user_id: string

@@ -39,7 +39,7 @@ type State = {
   /** Text reply; null = the mock answers with an HTTP 503 (not charged). */
   aiText: (() => AiTextReply) | null;
   /** When set, every mocked AI call fails with this HTTP status. */
-  aiFail: { status: number; retryable: boolean } | null;
+  aiFail: { status: number; retryable: boolean; headers?: Record<string, string> } | null;
   /** Simulated provider latency (ms), to make concurrent calls overlap. */
   aiDelayMs: number;
 };
