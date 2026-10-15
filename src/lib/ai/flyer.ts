@@ -32,7 +32,7 @@ export const flyerBriefSchema = z.object({
   /** When true, the image model should incorporate library photos as the subject. */
   use_uploaded_media: z.boolean(),
   /** Up to 2 media asset IDs from the business library (images only). */
-  reference_media_ids: z.array(z.string()).max(2).default([]),
+  reference_media_ids: z.array(z.string()).max(2),
 });
 
 export type FlyerBrief = z.infer<typeof flyerBriefSchema>;
@@ -257,13 +257,37 @@ export async function generateFlyerImage(options: {
     const refs = (options.referenceImages || []).filter((b) => b.byteLength > 0);
     const text = composeImagePrompt(options.brief, options.format, refs.length > 0);
 
+    function detectImageMime(buf: Buffer) {
+      if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+      if (
+        buf[0] === 0x89 &&
+        buf[1] === 0x50 &&
+        buf[2] === 0x4e &&
+        buf[3] === 0x47
+      ) {
+        return "image/png";
+      }
+      if (
+        buf.toString("ascii", 0, 4) === "RIFF" &&
+        buf.toString("ascii", 8, 12) === "WEBP"
+      ) {
+        return "image/webp";
+      }
+      return "image/png";
+    }
+
     const { image } = await generateImage({
-      model: openai.image("gpt-image-2.5-sunburst"),
+      model: openai.image("gpt-image-2"),
       prompt:
         refs.length > 0
           ? {
               text,
-              images: refs,
+              images: refs.map((buf) => {
+                const bytes =
+                  buf instanceof Buffer ? buf : Buffer.from(buf);
+                const mime = detectImageMime(bytes);
+                return `data:${mime};base64,${bytes.toString("base64")}`;
+              }),
             }
           : text,
       size,
@@ -271,9 +295,6 @@ export async function generateFlyerImage(options: {
         openai: {
           quality: "high",
           outputFormat: "png",
-          ...(refs.length > 0
-            ? { inputFidelity: "high" as const }
-            : {}),
         },
       },
     });
@@ -294,7 +315,7 @@ export async function generateFlyerImage(options: {
       width: size === "1536x1024" ? 1536 : 1024,
       height:
         size === "1024x1536" ? 1536 : size === "1536x1024" ? 1024 : 1024,
-      model: "gpt-image-2.5-sunburst",
+      model: "gpt-image-2",
       usedReferences: refs.length,
     };
   } catch (error) {
@@ -341,8 +362,8 @@ export async function loadFlyerReferenceImages(options: {
 
     const ab = await data.arrayBuffer();
     if (ab.byteLength < 32) continue;
-    // Cap very large refs (~8 MB) to keep image edit requests manageable
-    if (ab.byteLength > 8 * 1024 * 1024) continue;
+    // Cap large refs (~3.5 MB) — edits API rejects oversized phone JPEGs
+    if (ab.byteLength > 3.5 * 1024 * 1024) continue;
 
     buffers.push(Buffer.from(ab));
     usedIds.push(id);

@@ -165,7 +165,7 @@ export async function POST(request: Request) {
         },
         outputPayload: briefResult.data,
         status: "failed",
-        model: "gpt-image-2.5-sunburst",
+        model: "gpt-image-2",
         errorMessage: imageResult.error,
       });
       return NextResponse.json(
