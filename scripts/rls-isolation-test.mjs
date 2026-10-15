@@ -3,6 +3,8 @@
 //   npm run db:start && npm run db:reset && npm run test:rls
 import { createClient } from "@supabase/supabase-js";
 import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
+// Only the platform admin may create businesses; tests need user-owned ones.
+import { createOrgAsOwner } from "./lib/create-test-org.mjs";
 
 const env = loadLocalTestEnv(".env.test");
 
@@ -43,23 +45,21 @@ const userB = await makeUser(emailB);
 const clientA = await asUser(emailA);
 const clientB = await asUser(emailB);
 
-const { data: orgA, error: eA } = await clientA.rpc("create_organisation", {
+const orgA = await createOrgAsOwner(userA.id, {
   p_name: "Business Alpha Test",
   p_slug: `alpha-${stamp}`,
   p_business_category: "Cafe",
   p_description: "Alpha only",
   p_location: "London",
 });
-if (eA) throw eA;
 
-const { data: orgB, error: eB } = await clientB.rpc("create_organisation", {
+const orgB = await createOrgAsOwner(userB.id, {
   p_name: "Business Beta Test",
   p_slug: `beta-${stamp}`,
   p_business_category: "Salon",
   p_description: "Beta only",
   p_location: "Manchester",
 });
-if (eB) throw eB;
 
 const { data: svcA, error: sA } = await clientA
   .from("products_services")

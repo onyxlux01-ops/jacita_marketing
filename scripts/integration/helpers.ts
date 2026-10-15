@@ -10,6 +10,7 @@ import {
   LOCAL_API_PORT,
   LOCAL_DB_PORT,
 } from "../lib/assert-local-db.mjs";
+import { createOrgAsOwner } from "../lib/create-test-org.mjs";
 import { itest } from "./state";
 
 const url = assertLocalUrl(
@@ -62,14 +63,18 @@ export function actAs(user: TestUser | null) {
   itest.userClient = user ? user.client : null;
 }
 
+/**
+ * A business owned by `owner`. Only the platform admin may create
+ * businesses, so ordinary test owners go through the LOCAL-Postgres fixture
+ * (temporary admin flag inside one transaction; see create-test-org.mjs).
+ * The rule itself is tested with real sessions in 97-admin-only-orgs.
+ */
 export async function createOrg(owner: TestUser, label = "biz") {
   const slug = uniq(label).toLowerCase();
-  const { data, error } = await owner.client.rpc("create_organisation", {
+  return (await createOrgAsOwner(owner.id, {
     p_name: `Test ${label}`,
     p_slug: slug,
-  });
-  if (error) throw error;
-  return data as string;
+  })) as string;
 }
 
 /**

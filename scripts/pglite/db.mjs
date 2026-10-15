@@ -80,20 +80,46 @@ export async function newUser(db, label) {
   return r.rows[0].id;
 }
 
-export async function makePlatformAdmin(db, userId) {
+export async function setPlatformAdmin(db, userId, value) {
   await db.exec(`alter table public.users disable trigger users_protect_platform_admin`);
-  await db.query(`update public.users set is_platform_admin = true where id = $1`, [userId]);
+  await db.query(`update public.users set is_platform_admin = $2 where id = $1`, [userId, value]);
   await db.exec(`alter table public.users enable trigger users_protect_platform_admin`);
 }
 
+export async function makePlatformAdmin(db, userId) {
+  await setPlatformAdmin(db, userId, true);
+}
+
+/** Call create_organisation as `userId` exactly as given (no fixture help). */
+export async function callCreateOrg(db, userId, name = "Org", role = "authenticated") {
+  return asUser(
+    db,
+    userId,
+    async () => {
+      const r = await db.query(`select public.create_organisation($1, $2) as id`, [
+        name,
+        `${name.toLowerCase()}-${Math.random().toString(36).slice(2)}`,
+      ]);
+      return r.rows[0].id;
+    },
+    role
+  );
+}
+
+/**
+ * Fixture: a business owned by `userId`. Only the platform admin may create
+ * businesses, so an ordinary user is flagged admin just for the call (the
+ * creator still becomes the first owner through the real RPC).
+ */
 export async function rpcCreateOrg(db, userId, name = "Org") {
-  return asUser(db, userId, async () => {
-    const r = await db.query(`select public.create_organisation($1, $2) as id`, [
-      name,
-      `${name.toLowerCase()}-${Math.random().toString(36).slice(2)}`,
-    ]);
-    return r.rows[0].id;
-  });
+  const r = await db.query(`select is_platform_admin from public.users where id = $1`, [userId]);
+  const wasAdmin = r.rows[0]?.is_platform_admin === true;
+  if (!wasAdmin) await setPlatformAdmin(db, userId, true);
+  try {
+    return await callCreateOrg(db, userId, name);
+  } finally {
+    if (!wasAdmin) await setPlatformAdmin(db, userId, false);
+  }
 }
 
 /**

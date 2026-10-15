@@ -4,6 +4,8 @@
 import { createClient } from "@supabase/supabase-js";
 // LOCAL ONLY: reads .env.test and refuses any non-localhost Supabase URL.
 import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
+// Only the platform admin may create businesses; tests need user-owned ones.
+import { createOrgAsOwner } from "./lib/create-test-org.mjs";
 
 const env = loadLocalTestEnv(".env.test");
 
@@ -33,14 +35,13 @@ const client = createClient(url, anon, {
 await client.auth.signInWithPassword({ email, password });
 
 async function seed(name, slug, category, decision) {
-  const { data: orgId, error } = await client.rpc("create_organisation", {
+  const orgId = await createOrgAsOwner(user.id, {
     p_name: name,
     p_slug: slug,
     p_business_category: category,
     p_description: `${name} control centre test`,
     p_location: "London",
   });
-  if (error) throw error;
 
   await client.from("automation_settings").upsert({
     organisation_id: orgId,

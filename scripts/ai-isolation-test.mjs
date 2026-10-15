@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 // LOCAL ONLY: reads .env.test and refuses any non-localhost Supabase URL.
 import { loadLocalTestEnv } from "./lib/assert-local-db.mjs";
+// Only the platform admin may create businesses; tests need user-owned ones.
+import { createOrgAsOwner } from "./lib/create-test-org.mjs";
 
 const env = loadLocalTestEnv(".env.test");
 
@@ -61,23 +63,21 @@ const userB = await makeUser(emailB);
 const clientA = await asUser(emailA);
 const clientB = await asUser(emailB);
 
-const { data: orgA, error: eA } = await clientA.rpc("create_organisation", {
+const orgA = await createOrgAsOwner(userA.id, {
   p_name: "Northside Braids Salon",
   p_slug: `salon-${stamp}`,
   p_business_category: "Hair salon",
   p_description: "Specialist knotless braids and protective styles",
   p_location: "London",
 });
-if (eA) throw eA;
 
-const { data: orgB, error: eB } = await clientB.rpc("create_organisation", {
+const orgB = await createOrgAsOwner(userB.id, {
   p_name: "Harbour Kitchen",
   p_slug: `resto-${stamp}`,
   p_business_category: "Restaurant",
   p_description: "Seasonal seafood and weekend brunch",
   p_location: "Brighton",
 });
-if (eB) throw eB;
 
 await clientA.from("products_services").insert({
   organisation_id: orgA,
