@@ -31,6 +31,7 @@ export function AppTopbar({
   user: AppUser | null;
   unreadCount?: number;
 }) {
+  const canAddBusiness = Boolean(user?.is_platform_admin);
   return (
     <header className="jacita-chrome sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-border/60 px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-2 lg:hidden">
@@ -51,6 +52,7 @@ export function AppTopbar({
               <AppSidebar
                 organisations={organisations}
                 active={active}
+                canAddBusiness={canAddBusiness}
                 className="flex h-full w-full"
               />
             </div>
@@ -60,12 +62,17 @@ export function AppTopbar({
           organisations={organisations}
           active={active}
           variant="compact"
+          canAddBusiness={canAddBusiness}
         />
       </div>
 
       <div className="hidden min-w-0 lg:block">
         <p className="truncate text-sm text-muted-foreground">
-          {active ? active.name : "Create a business to begin"}
+          {active
+            ? active.name
+            : canAddBusiness
+              ? "Create a business to begin"
+              : "No business yet"}
         </p>
       </div>
 

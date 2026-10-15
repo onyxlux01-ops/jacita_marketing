@@ -76,12 +76,14 @@ export function UserMenu({ user }: { user: AppUser | null }) {
             Settings
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/app/onboarding">
-            <User className="size-4" />
-            Add business
-          </Link>
-        </DropdownMenuItem>
+        {user?.is_platform_admin ? (
+          <DropdownMenuItem asChild>
+            <Link href="/app/onboarding">
+              <User className="size-4" />
+              Add business
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void signOut()}>
           <LogOut className="size-4" />

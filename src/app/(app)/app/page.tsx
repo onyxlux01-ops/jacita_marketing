@@ -186,6 +186,7 @@ export default async function DashboardPage() {
               organisations={orgs}
               active={active}
               variant="page"
+              canAddBusiness={Boolean(user?.is_platform_admin)}
             />
           </div>
           <div className="lg:hidden">

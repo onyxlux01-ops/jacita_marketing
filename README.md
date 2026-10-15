@@ -85,7 +85,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/app/social` | Connect Facebook / Instagram / TikTok (OAuth) |
 | `/app/automation` | Automation control centre, publishing queue, Meta ads |
 | `/app/settings` | Business, brand profile, team and invites |
-| `/app/onboarding` | Create a business |
+| `/app/onboarding` | Create a business (platform admin only) |
 | `/platform` | Platform admin |
 
 ## How it behaves
@@ -97,6 +97,11 @@ Open [http://localhost:3000](http://localhost:3000).
   invite is pending and unexpired). Nobody can be invited as owner;
   ownership only moves through **Transfer ownership**. Managers cannot invite
   or manage members.
+- **Only the platform admin creates businesses.** `create_organisation`
+  refuses everyone else (`ONLY_PLATFORM_ADMIN_CAN_CREATE_BUSINESS`), because
+  every business gets its own AI budget on the shared OpenAI key. The admin
+  becomes the owner of each business they add (hand it over with **Transfer
+  ownership**). Everyone else sees no "Add business" option.
 - **Publishing is real.** Connected accounts publish through the job queue
   (`/api/cron/publish-due`), with atomic job claims, lock-token checks and
   an `uncertain` state when the outcome of a post is unknown (a person must
@@ -119,7 +124,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - Social OAuth tokens are stored encrypted server-side (`SOCIAL_TOKEN_ENCRYPTION_KEY`), never in the browser.
 - Storage objects live under `{organisation_id}/…` with RLS on the first path segment.
 - Membership rows can only be created by `create_organisation` (the first
-  owner), `accept_invite` and `transfer_ownership`; direct inserts (browser
+  owner; platform admin only), `accept_invite` and `transfer_ownership`; direct inserts (browser
   or service role) are refused by a trigger.
 
 ## Deploying (live project) — go-live order
@@ -186,6 +191,8 @@ Follow these steps in order.
    13. `20261014190000_ads_pause_and_reconcile.sql`
    14. `20261014200000_ads_sync_after_reconcile.sql`
    15. `20261014210000_ai_spend_limits.sql`
+   16. `20261015100000_admin_only_create_organisation.sql` (a project that
+       already has 1–15 needs only this file)
 
    After `20261014180000`, scripts that insert members with the service role
    (e.g. `scripts/seed-business-profiles-remote.mjs`) no longer work; people
@@ -255,6 +262,11 @@ Follow these steps in order.
    where lower(a.email) = lower('operator@example.com');
    ```
 
+   **Only the platform admin can create businesses**, so make yourself
+   platform admin (this step) before creating the first business. Then
+   create it from `/app/onboarding` (or Platform → Add business); you become
+   its owner and can hand it over with Transfer ownership.
+
 9. **AI spending limits.** Every paid AI call (all `/api/ai/*` routes and
    the automation engine) now reserves an estimated cost against the
    business budget before calling the provider. (The Automation page's
@@ -298,6 +310,9 @@ Follow these steps in order.
     - [ ] Settings → AI usage shows this month's spend (estimated and
       actual) and today's image count; the limits save as the platform admin
       and are read-only for everyone else.
+    - [ ] As the platform admin, Add business works; signed in as a
+      non-admin, the business switcher shows "Only the workspace
+      administrator can add businesses." and `/app/onboarding` shows no form.
     - [ ] One real publish to a dedicated test account.
 
 ## Remote Supabase

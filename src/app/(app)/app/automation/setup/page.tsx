@@ -10,11 +10,12 @@ import {
 } from "@/lib/automation";
 import {
   getActiveOrganisation,
+  getSessionUser,
   getUserOrganisations,
 } from "@/lib/org";
 
 export default async function AutomationSetupPage() {
-  const orgs = await getUserOrganisations();
+  const [orgs, user] = await Promise.all([getUserOrganisations(), getSessionUser()]);
   const active = await getActiveOrganisation(orgs);
 
   if (!active || !hasSupabaseEnv()) {
@@ -36,7 +37,12 @@ export default async function AutomationSetupPage() {
     <div className="jacita-page jacita-enter max-w-2xl space-y-8">
       <header>
         <div className="hidden lg:block">
-          <BusinessSwitcher organisations={orgs} active={active} variant="page" />
+          <BusinessSwitcher
+            organisations={orgs}
+            active={active}
+            variant="page"
+            canAddBusiness={Boolean(user?.is_platform_admin)}
+          />
         </div>
         <h1 className="mt-3 font-heading text-2xl font-semibold tracking-tight">
           Automation setup

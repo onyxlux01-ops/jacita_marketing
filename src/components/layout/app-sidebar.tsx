@@ -77,10 +77,12 @@ export function AppSidebar({
   organisations,
   active,
   className,
+  canAddBusiness = false,
 }: {
   organisations: OrganisationSummary[];
   active: OrganisationSummary | null;
   className?: string;
+  canAddBusiness?: boolean;
 }) {
   return (
     <aside
@@ -99,7 +101,11 @@ export function AppSidebar({
       </div>
 
       <div className="px-2 pb-3">
-        <BusinessSwitcher organisations={organisations} active={active} />
+        <BusinessSwitcher
+          organisations={organisations}
+          active={active}
+          canAddBusiness={canAddBusiness}
+        />
       </div>
 
       <div className="mx-4 h-px bg-sidebar-border" />

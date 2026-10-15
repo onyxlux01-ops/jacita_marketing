@@ -7,6 +7,11 @@ import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { setActiveOrganisationCookie } from "@/lib/org";
 import type { MarketingGoalKey } from "@/lib/ai/goals";
 import type { OnboardingStep } from "@/lib/org/setup-progress";
+import {
+  CREATE_BUSINESS_ADMIN_ONLY,
+  CREATE_BUSINESS_ADMIN_ONLY_MESSAGE,
+  type CreateBusinessError,
+} from "@/lib/org/business-creation";
 import type { OrgRole } from "@/lib/database.types";
 import type { Json } from "@/lib/database.types";
 import {
@@ -41,9 +46,33 @@ async function requireManage(
   return data;
 }
 
-export async function createOrganisationOnboarding(formData: FormData) {
+async function isPlatformAdmin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+) {
+  const { data: profile } = await supabase
+    .from("users")
+    .select("is_platform_admin")
+    .eq("id", userId)
+    .maybeSingle();
+  return profile?.is_platform_admin === true;
+}
+
+const adminOnlyError: CreateBusinessError = {
+  error: CREATE_BUSINESS_ADMIN_ONLY_MESSAGE,
+  code: CREATE_BUSINESS_ADMIN_ONLY,
+};
+
+/**
+ * Create a business (platform admin only; create_organisation enforces the
+ * same rule in the database). The creator becomes its first owner.
+ */
+export async function createOrganisationOnboarding(
+  formData: FormData
+): Promise<CreateBusinessError> {
   const auth = await getAuthed();
-  if ("error" in auth) return { error: auth.error };
+  if (!auth.supabase) return { error: auth.error ?? "Not authenticated" };
+  if (!(await isPlatformAdmin(auth.supabase, auth.user.id))) return adminOnlyError;
 
   const name = String(formData.get("name") ?? "").trim();
   let slug = String(formData.get("slug") ?? "")
@@ -78,7 +107,10 @@ export async function createOrganisationOnboarding(formData: FormData) {
     p_opening_hours: undefined,
   });
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (error.message.includes(CREATE_BUSINESS_ADMIN_ONLY)) return adminOnlyError;
+    return { error: error.message };
+  }
   if (!orgId) return { error: "Could not create business" };
 
   await auth.supabase
@@ -360,12 +392,7 @@ async function requireOwnerOrPlatformAdmin(
 ) {
   const owner = await requireManage(supabase, userId, organisationId, ["owner"]);
   if (owner) return { via: "owner" as const };
-  const { data: profile } = await supabase
-    .from("users")
-    .select("is_platform_admin")
-    .eq("id", userId)
-    .maybeSingle();
-  if (profile?.is_platform_admin) return { via: "platform_admin" as const };
+  if (await isPlatformAdmin(supabase, userId)) return { via: "platform_admin" as const };
   return null;
 }
 

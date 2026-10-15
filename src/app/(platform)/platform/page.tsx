@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import { PlatformBusinessList } from "./business-list";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -77,9 +79,17 @@ export default async function PlatformAdminPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Businesses</CardTitle>
-          <CardDescription>Disable or re-enable organisations</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle>Businesses</CardTitle>
+            <CardDescription>
+              Disable or re-enable organisations. Only you (the platform admin)
+              can add businesses; you become the owner of each one you add.
+            </CardDescription>
+          </div>
+          <Button asChild size="sm" className="shrink-0">
+            <Link href="/app/onboarding">Add business</Link>
+          </Button>
         </CardHeader>
         <CardContent>
           <PlatformBusinessList businesses={businesses} />

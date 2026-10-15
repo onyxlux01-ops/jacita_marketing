@@ -45,7 +45,11 @@ export default async function AppShellLayout({
 
   return (
     <div className="flex min-h-svh bg-background">
-      <AppSidebar organisations={organisations} active={active} />
+      <AppSidebar
+        organisations={organisations}
+        active={active}
+        canAddBusiness={Boolean(user?.is_platform_admin)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
           organisations={organisations}

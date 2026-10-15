@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { switchOrganisation } from "@/app/(app)/app/actions/org";
 import type { OrganisationSummary } from "@/lib/org";
+import { CREATE_BUSINESS_ADMIN_ONLY_MESSAGE } from "@/lib/org/business-creation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,10 +26,13 @@ export function BusinessSwitcher({
   organisations,
   active,
   variant = "sidebar",
+  canAddBusiness = false,
 }: {
   organisations: OrganisationSummary[];
   active: OrganisationSummary | null;
   variant?: "sidebar" | "compact" | "page";
+  /** Only the platform admin may create businesses. */
+  canAddBusiness?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const subtitle = businessMeta(active);
@@ -123,12 +127,18 @@ export function BusinessSwitcher({
           ))
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/app/onboarding" className="flex items-center gap-2">
-            <Plus className="size-3.5" />
-            Add business
-          </Link>
-        </DropdownMenuItem>
+        {canAddBusiness ? (
+          <DropdownMenuItem asChild>
+            <Link href="/app/onboarding" className="flex items-center gap-2">
+              <Plus className="size-3.5" />
+              Add business
+            </Link>
+          </DropdownMenuItem>
+        ) : (
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">
+            {CREATE_BUSINESS_ADMIN_ONLY_MESSAGE}
+          </p>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -24,11 +24,12 @@ import { getMetaSurfaceForOrganisation } from "@/lib/ads/service";
 import { getAiProviderHealth } from "@/lib/ai";
 import {
   getActiveOrganisation,
+  getSessionUser,
   getUserOrganisations,
 } from "@/lib/org";
 
 export default async function AutomationPage() {
-  const orgs = await getUserOrganisations();
+  const [orgs, user] = await Promise.all([getUserOrganisations(), getSessionUser()]);
   const active = await getActiveOrganisation(orgs);
 
   if (!active || !hasSupabaseEnv()) {
@@ -108,6 +109,7 @@ export default async function AutomationPage() {
           organisations={orgs}
           active={active}
           variant="page"
+          canAddBusiness={Boolean(user?.is_platform_admin)}
         />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
