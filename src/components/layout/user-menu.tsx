@@ -45,7 +45,7 @@ export function UserMenu({ user }: { user: AppUser | null }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="rounded-full">
+        <Button variant="ghost" size="icon-sm" className="min-h-11 min-w-11 rounded-full" aria-label="Open user menu">
           <Avatar className="size-7">
             {user?.avatar_url ? (
               <AvatarImage src={user.avatar_url} alt="" />

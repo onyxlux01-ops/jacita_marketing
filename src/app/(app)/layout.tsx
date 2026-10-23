@@ -45,6 +45,7 @@ export default async function AppShellLayout({
 
   return (
     <div className="flex min-h-svh bg-background">
+      <a href="#main-content" className="sr-only z-50 rounded-lg bg-background p-3 text-foreground shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to main content</a>
       <AppSidebar
         organisations={organisations}
         active={active}
@@ -57,9 +58,9 @@ export default async function AppShellLayout({
           user={user}
           unreadCount={unreadCount}
         />
-        <div className="flex-1 px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:pb-8">
+        <main id="main-content" tabIndex={-1} className="flex-1 px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:pb-8">
           {children}
-        </div>
+        </main>
       </div>
       <MobileBottomNav />
     </div>

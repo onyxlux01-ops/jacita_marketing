@@ -260,7 +260,9 @@ export async function publishContentViaJobPipeline(input: {
     .limit(1)
     .maybeSingle();
 
-  if (existingJob?.external_post_id || existingJob?.status === "published") {
+  // A provider reference can be an asynchronous upload/container ID. Only
+  // the confirmed state means it is published; processing remains in progress.
+  if (existingJob?.status === "published") {
     return {
       success: true as const,
       externalPostId: existingJob.external_post_id || "",
@@ -397,10 +399,10 @@ export async function retryPublishJob(input: {
 
   if (!job) return { error: "Job not found for this business" };
 
+  if (job.status === "processing") return IN_PROGRESS;
   if (job.external_post_id || job.published_at) {
     return { error: "Already published — duplicate blocked", duplicate: true };
   }
-  if (job.status === "processing") return IN_PROGRESS;
   const wasUncertain = job.status === "uncertain";
   if (wasUncertain && input.confirmNotLive !== true) {
     return {

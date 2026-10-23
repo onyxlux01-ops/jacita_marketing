@@ -53,6 +53,7 @@ function NavLink({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "jacita-press group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
         active
@@ -165,8 +166,9 @@ export function MobileBottomNav() {
             <li key={item.href} className="flex-1">
               <Link
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "jacita-press flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium",
+                  "jacita-press flex min-h-11 flex-col items-center gap-1 px-1 py-2.5 text-xs font-medium",
                   active ? "text-primary" : "text-muted-foreground"
                 )}
               >

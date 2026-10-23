@@ -77,7 +77,7 @@ export function AppTopbar({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Button asChild size="sm" className="hidden sm:inline-flex">
+        <Button asChild size="sm" className="min-h-11">
           <Link href="/app/content/new">
             <Plus className="size-3.5" />
             Create

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarPlus,
@@ -168,12 +168,6 @@ export function GenerateContentForm({
     [media, mediaId, pkg]
   );
 
-  useEffect(() => {
-    if (pkg?.versions?.[0]?.platform) {
-      setActivePlatform(pkg.versions[0].platform);
-    }
-  }, [pkg]);
-
   function updateActiveVersion(patch: Partial<PlatformVersion>) {
     setPkg((prev) => {
       if (!prev) return prev;
@@ -218,6 +212,7 @@ export function GenerateContentForm({
         }
         const next = data.package as ContentPackage;
         setPkg(next);
+        setActivePlatform(next.versions[0]?.platform ?? "instagram");
         setValidation((data.validation as ValidationResult) || null);
         setGaps(data.gaps || []);
         setVariations([]);
@@ -731,6 +726,8 @@ Create a ${days}-day content mix for this business. Avoid repetitive promotional
               hook={activeVersion?.hook}
               hashtags={activeVersion?.hashtags}
               mediaUrl={selectedMedia?.file_url}
+              mediaType={selectedMedia?.media_type === "video" ? "video" : selectedMedia?.media_type === "image" ? "image" : null}
+              callToAction={activeVersion?.call_to_action}
               onScreenText={activeVersion?.on_screen_text}
               editing={editing}
               onCaptionChange={(caption) => updateActiveVersion({ caption })}

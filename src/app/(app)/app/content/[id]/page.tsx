@@ -3,13 +3,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/content/status-badge";
 import { PlatformIcons } from "@/components/content/platform-icons";
-import { SocialPreview } from "@/components/content/social-preview";
-import { ContentWorkflow } from "./workflow-actions";
-import { ContentEditor } from "./content-editor";
-import {
-  PlatformPublishPanel,
-  type PlatformRow,
-} from "./platform-publish-panel";
+import { ReviewWorkspace } from "./review-workspace";
+import type { PlatformRow } from "./platform-publish-panel";
 import { Button } from "@/components/ui/button";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
 import type { ContentStatus, SocialPlatform } from "@/lib/types";
@@ -32,7 +27,7 @@ export default async function ContentDetailPage({
   }
 
   const supabase = await createClient();
-  const { data: item } = await supabase
+  const { data: item, error: contentError } = await supabase
     .from("content")
     .select(
       "*, content_platforms(id, platform, publish_status, scheduled_at, published_at, external_post_id, error_message, social_account_id, caption_override, hook_override)"
@@ -40,6 +35,7 @@ export default async function ContentDetailPage({
     .eq("id", id)
     .maybeSingle();
 
+  if (contentError) throw new Error("Content could not be loaded. Please retry.");
   if (!item) notFound();
 
   const [{ data: events }, { data: org }] = await Promise.all([
@@ -57,19 +53,36 @@ export default async function ContentDetailPage({
   ]);
 
   let mediaUrl: string | null = null;
+  let mediaType: "image" | "video" | null = null;
+  let mediaError: string | null = null;
   if (item.media_asset_id) {
-    const { data: mediaRow } = await supabase
+    const { data: mediaRow, error } = await supabase
       .from("media_assets")
-      .select("storage_path")
+      .select("storage_path, media_type")
       .eq("id", item.media_asset_id)
+      .eq("organisation_id", item.organisation_id)
+      .eq("is_active", true)
       .maybeSingle();
-    if (mediaRow?.storage_path) {
-      const { data: signed } = await supabase.storage
+    if (error || !mediaRow || !mediaRow.storage_path.startsWith(item.organisation_id + "/")) {
+      mediaError = "The selected media is unavailable. Check the business media library before approving.";
+    } else {
+      mediaType = mediaRow.media_type;
+      const { data: signed, error: signError } = await supabase.storage
         .from("media")
         .createSignedUrl(mediaRow.storage_path, 60 * 60);
       mediaUrl = signed?.signedUrl ?? null;
+      if (signError || !mediaUrl) mediaError = "The media preview could not be loaded. Refresh to try again.";
     }
   }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: membership } = user ? await supabase
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", item.organisation_id)
+    .eq("user_id", user.id)
+    .maybeSingle() : { data: null };
+  const canPublish = membership?.role === "owner" || membership?.role === "manager";
 
   const platformRowsRaw = (
     item as {
@@ -86,10 +99,12 @@ export default async function ContentDetailPage({
     }
   ).content_platforms ?? [];
 
-  const { data: allOrgAccounts } = await supabase
+  const { data: allOrgAccounts, error: accountsError } = await supabase
     .from("social_accounts")
     .select("id, platform, account_handle, account_name, connection_status")
     .eq("organisation_id", item.organisation_id);
+
+  if (accountsError) throw new Error("Social accounts could not be loaded. Please retry.");
 
   const accountById = Object.fromEntries(
     (allOrgAccounts ?? []).map((a) => [a.id, a])
@@ -100,9 +115,9 @@ export default async function ContentDetailPage({
 
   const platformRows: PlatformRow[] = platformRowsRaw.map((p) => {
     const linked =
-      (p.social_account_id && accountById[p.social_account_id]) ||
-      accountByPlatform[p.platform] ||
-      null;
+      p.social_account_id
+        ? accountById[p.social_account_id] || null
+        : accountByPlatform[p.platform] || null;
     return {
       id: p.id,
       platform: p.platform,
@@ -124,13 +139,6 @@ export default async function ContentDetailPage({
       (p.publish_status === "scheduled" || item.status === "scheduled") &&
       p.connection_status !== "connected"
   );
-
-  const tags =
-    Array.isArray(item.hashtags) && item.hashtags.length > 0
-      ? item.hashtags
-          .map((h: string) => (h.startsWith("#") ? h : `#${h}`))
-          .join(" ")
-      : "";
 
   const itemExt = item as typeof item & {
     on_screen_text?: string | null;
@@ -187,55 +195,29 @@ export default async function ContentDetailPage({
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
-        <div className="space-y-6">
-          <section className="jacita-panel rounded-2xl p-5 sm:p-6">
-            <p className="jacita-label">Workflow</p>
-            <h2 className="mt-2 font-heading text-lg font-semibold">Status</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Draft → review → approved → scheduled → publishing → published
-            </p>
-            <div className="mt-5">
-              <ContentWorkflow
-                contentId={item.id}
-                organisationId={item.organisation_id}
-                status={item.status as ContentStatus}
-                scheduledAt={item.scheduled_at}
-                timeZone={org?.timezone ?? "Europe/London"}
-              />
-            </div>
-          </section>
-
-          <ContentEditor
-            contentId={item.id}
-            organisationId={item.organisation_id}
-            initial={{
-              title: item.title,
-              hook: item.hook,
-              caption: item.caption,
-              call_to_action: item.call_to_action,
-              hashtags: item.hashtags,
-              video_concept: item.video_concept,
-              on_screen_text: itemExt.on_screen_text ?? null,
-              voiceover_script: itemExt.voiceover_script ?? null,
-              alt_text: itemExt.alt_text ?? null,
-              posting_recommendation: itemExt.posting_recommendation ?? null,
-            }}
-            status={item.status as ContentStatus}
-            scheduledAt={item.scheduled_at}
-            timeZone={org?.timezone ?? "Europe/London"}
-          />
-
-          <section className="jacita-panel rounded-2xl p-5 sm:p-6">
-            <p className="jacita-label">Platforms</p>
-            <h2 className="mt-2 font-heading text-lg font-semibold">
-              Per-platform publishing
-            </h2>
-            <div className="mt-5">
-              <PlatformPublishPanel contentId={item.id} rows={platformRows} />
-            </div>
-          </section>
-
+      <ReviewWorkspace
+        key={item.id}
+        contentId={item.id}
+        organisationId={item.organisation_id}
+        initial={{
+          title: item.title, hook: item.hook, caption: item.caption,
+          call_to_action: item.call_to_action, hashtags: item.hashtags,
+          video_concept: item.video_concept,
+          on_screen_text: itemExt.on_screen_text ?? null,
+          voiceover_script: itemExt.voiceover_script ?? null,
+          alt_text: itemExt.alt_text ?? null,
+          posting_recommendation: itemExt.posting_recommendation ?? null,
+        }}
+        status={item.status as ContentStatus}
+        scheduledAt={item.scheduled_at}
+        timeZone={org?.timezone ?? "Europe/London"}
+        businessName={org?.name || "Business"}
+        mediaUrl={mediaUrl}
+        mediaType={mediaType}
+        mediaError={mediaError}
+        rows={platformRows}
+        canPublish={canPublish}
+      >
           <section className="jacita-panel space-y-3 rounded-2xl p-5 sm:p-6">
             <p className="jacita-label">History</p>
             <h2 className="mt-1 font-heading text-lg font-semibold">
@@ -269,26 +251,7 @@ export default async function ContentDetailPage({
               </ul>
             )}
           </section>
-        </div>
-
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <p className="jacita-label mb-3">Preview</p>
-          <SocialPreview
-            platform={platforms[0] || "instagram"}
-            businessName={org?.name || "Business"}
-            caption={item.caption || undefined}
-            hook={item.hook || undefined}
-            hashtags={item.hashtags || []}
-            mediaUrl={mediaUrl}
-            onScreenText={itemExt.on_screen_text}
-          />
-          {tags ? (
-            <p className="mt-3 text-center text-xs text-muted-foreground">
-              {tags}
-            </p>
-          ) : null}
-        </aside>
-      </div>
+      </ReviewWorkspace>
     </div>
   );
 }

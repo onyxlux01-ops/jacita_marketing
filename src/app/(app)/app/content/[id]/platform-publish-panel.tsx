@@ -1,15 +1,15 @@
 "use client";
 
-import { useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import {
-  publishContentNow,
-  retryFailedPublish,
-} from "@/app/(app)/app/actions/social";
+import { publishContentNow, retryFailedPublish } from "@/app/(app)/app/actions/social";
 import { Button } from "@/components/ui/button";
 import { PlatformPill } from "@/components/content/platform-icons";
-import type { PlatformPublishStatus, SocialPlatform } from "@/lib/types";
-import { format } from "date-fns";
+import { describePublishOutcome } from "@/lib/content/publish-outcome";
+import { formatInTimeZone } from "@/lib/timezone";
+import type { ContentStatus, PlatformPublishStatus, SocialPlatform } from "@/lib/types";
 
 export type PlatformRow = {
   id: string;
@@ -25,123 +25,73 @@ export type PlatformRow = {
   connection_status: string | null;
 };
 
-export function PlatformPublishPanel({
-  contentId,
-  rows,
-}: {
+type Outcome = ReturnType<typeof describePublishOutcome>;
+
+export function PlatformPublishPanel({ contentId, rows, contentStatus, canPublish, timeZone }: {
   contentId: string;
   rows: PlatformRow[];
+  contentStatus: ContentStatus;
+  canPublish: boolean;
+  timeZone: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+  const approved = ["approved", "scheduled", "failed"].includes(contentStatus);
 
-  if (!rows.length) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No platforms selected for this content.
-      </p>
-    );
+  function publish(row: PlatformRow) {
+    startTransition(async () => {
+      let outcome: Outcome;
+      try {
+        const action = row.publish_status === "failed" ? retryFailedPublish : publishContentNow;
+        const result = await action({ contentId, socialAccountId: row.social_account_id!, contentPlatformId: row.id });
+        outcome = describePublishOutcome(result);
+      } catch {
+        outcome = { tone: "error", message: "The publishing request could not be confirmed. Check Automation → Publishing before trying again." };
+      }
+      setOutcomes((previous) => ({ ...previous, [row.id]: outcome }));
+      if (outcome.tone === "error") toast.error(outcome.message);
+      else if (outcome.tone === "success") toast.success(outcome.message);
+      else toast.info(outcome.message);
+      router.refresh();
+    });
   }
 
+  if (!rows.length) return <p className="text-sm text-muted-foreground">No platforms selected for this content.</p>;
   return (
-    <ul className="divide-y divide-border/70">
-      {rows.map((row) => {
-        const connected = row.connection_status === "connected";
-        const canPublish = Boolean(row.social_account_id) && connected;
-        const failed = row.publish_status === "failed";
-
-        return (
-          <li
-            key={row.id}
-            className="flex flex-wrap items-start justify-between gap-3 py-4 first:pt-0 last:pb-0"
-          >
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <PlatformPill platform={row.platform} />
-                <span className="text-sm font-medium capitalize">
-                  {row.publish_status === "held"
-                    ? "Held · needs re-approval"
-                    : row.publish_status}
-                </span>
+    <div className="space-y-3">
+      {!canPublish ? <p className="text-sm text-muted-foreground">Only owners and managers can publish.</p> : !approved ? <p className="text-sm text-muted-foreground">Approve this content before publishing.</p> : null}
+      <ul className="divide-y divide-border/70">
+        {rows.map((row) => {
+          const connected = Boolean(row.social_account_id) && row.connection_status === "connected";
+          const eligible = connected && canPublish && approved && ["approved", "scheduled", "failed", "draft"].includes(row.publish_status);
+          const outcome = outcomes[row.id];
+          return (
+            <li key={row.id} className="flex flex-wrap items-start justify-between gap-3 py-4 first:pt-0 last:pb-0">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <PlatformPill platform={row.platform} />
+                  <span className="text-sm font-medium capitalize">{row.publish_status}</span>
+                </div>
+                <p className="break-words text-sm text-muted-foreground">{row.account_handle || row.account_name || "No account linked"}</p>
+                {!connected ? <Link href="/app/social" className="inline-flex min-h-11 items-center text-sm underline">{row.social_account_id ? "Reconnect account" : "Connect account"}</Link> : null}
+                {row.publish_status === "held" || row.publish_status === "uncertain" ? (
+                  <p className="text-sm text-muted-foreground">{row.publish_status === "uncertain" ? "This attempt may already be live. Check the provider before retrying." : "This post is on hold. Review the reason before re-approving."} <Link href="/app/automation" className="underline">Review publishing</Link></p>
+                ) : null}
+                {row.scheduled_at ? <p className="text-xs text-muted-foreground">Scheduled {formatInTimeZone(row.scheduled_at, timeZone)}</p> : null}
+                {row.published_at ? <p className="text-xs text-muted-foreground">Published {formatInTimeZone(row.published_at, timeZone)}</p> : null}
+                {row.external_post_id ? <p className="break-all text-xs text-muted-foreground">Provider reference: {row.external_post_id}</p> : null}
+                {row.error_message ? <p className="text-sm text-destructive">{row.error_message}</p> : null}
+                {outcome ? <div role={outcome.tone === "error" ? "alert" : "status"} className="space-y-1 text-sm">
+                  <p>{outcome.message}</p>
+                  {outcome.url ? <a href={outcome.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline">Open published post</a> : null}
+                </div> : null}
               </div>
-              {row.publish_status === "held" ? (
-                <p className="text-xs text-amber-800">
-                  Paused because the post went back to review. Re-approving
-                  re-queues every platform of this post.
-                </p>
-              ) : null}
-              <p className="text-sm text-muted-foreground">
-                {row.account_handle || row.account_name || "No account linked"}
-                {!connected && row.social_account_id
-                  ? " · disconnected"
-                  : !row.social_account_id
-                    ? " · connect in Social Accounts"
-                    : ""}
-              </p>
-              {row.scheduled_at ? (
-                <p className="text-xs text-muted-foreground">
-                  Scheduled {format(new Date(row.scheduled_at), "PPp")}
-                </p>
-              ) : null}
-              {row.published_at ? (
-                <p className="text-xs text-muted-foreground">
-                  Published {format(new Date(row.published_at), "PPp")}
-                </p>
-              ) : null}
-              {row.error_message ? (
-                <p className="text-xs text-destructive">{row.error_message}</p>
-              ) : null}
-            </div>
-            <div className="flex gap-2">
-              {canPublish &&
-              ["approved", "scheduled", "failed", "draft"].includes(
-                row.publish_status
-              ) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      const res = await publishContentNow({
-                        contentId,
-                        socialAccountId: row.social_account_id!,
-                        contentPlatformId: row.id,
-                      });
-                      if ("error" in res && res.error) toast.error(res.error);
-                      else if ("inProgress" in res && res.inProgress)
-                        toast.info(res.message);
-                      else toast.success("Publish started");
-                    });
-                  }}
-                >
-                  Publish now
-                </Button>
-              ) : null}
-              {failed && canPublish ? (
-                <Button
-                  size="sm"
-                  disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      const res = await retryFailedPublish({
-                        contentId,
-                        socialAccountId: row.social_account_id!,
-                        contentPlatformId: row.id,
-                      });
-                      if ("error" in res && res.error) toast.error(res.error);
-                      else if ("inProgress" in res && res.inProgress)
-                        toast.info(res.message);
-                      else toast.success("Retry started");
-                    });
-                  }}
-                >
-                  Retry
-                </Button>
-              ) : null}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+              {eligible ? <Button variant="outline" className="min-h-11" disabled={pending} onClick={() => publish(row)}>{pending ? "Checking publication…" : row.publish_status === "failed" ? "Retry publication" : "Publish now"}</Button> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

@@ -109,6 +109,24 @@ test("claims: Publish now never resets a processing job", async () => {
   assert.ok("inProgress" in retry && retry.inProgress);
   const [after] = await jobsFor(p.contentId);
   assert.equal(after.lock_token, "live-worker-token-0001");
+
+  // Asynchronous providers return a reference before confirming the post.
+  // Neither manual path may call that a successful publication or send again.
+  const { error } = await admin.from("social_publish_jobs")
+    .update({ external_post_id: "pending-provider-container" })
+    .eq("id", job.id);
+  assert.equal(error, null);
+  actAs(p.manager);
+  const pending = await publishContentNow({ contentId: p.contentId, socialAccountId: p.fb });
+  actAs(null);
+  assert.ok("inProgress" in pending && pending.inProgress, JSON.stringify(pending));
+  const pendingRetry = await retryPublishJob({
+    jobId: job.id as string,
+    organisationId: p.orgId,
+    userId: p.manager.id,
+  });
+  assert.ok("inProgress" in pendingRetry && pendingRetry.inProgress, JSON.stringify(pendingRetry));
+  assert.equal(callsFor(p.contentId), 0);
 });
 
 async function staleProcessingJob(label: string, requestSent: boolean) {

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildPublishCaption } from "@/lib/content/publish-caption";
 import { getSocialAdapter } from "@/lib/social/registry";
 import { loadAccountSecrets, saveAccountSecrets } from "@/lib/social/secrets";
 import { getPublishableMediaUrl } from "@/lib/social/media-url";
@@ -304,15 +305,7 @@ export async function publishContent(input: {
     }
   }
 
-  const captionParts = [
-    contentRow.caption || contentRow.hook || "",
-    contentRow.call_to_action || "",
-    (contentRow.hashtags || [])
-      .map((h) => (h.startsWith("#") ? h : `#${h}`))
-      .join(" "),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const captionParts = buildPublishCaption(contentRow);
 
   const media = await resolveMedia(
     contentRow.organisation_id,

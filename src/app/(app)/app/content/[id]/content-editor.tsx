@@ -42,6 +42,7 @@ export function ContentEditor({
   status,
   scheduledAt,
   timeZone,
+  onPreviewChange,
 }: {
   contentId: string;
   organisationId: string;
@@ -49,6 +50,7 @@ export function ContentEditor({
   status: ContentStatus;
   scheduledAt: string | null;
   timeZone: string;
+  onPreviewChange?: (fields: Fields, unsaved: boolean) => void;
 }) {
   const router = useRouter();
   const tz = normaliseTimeZone(timeZone);
@@ -79,6 +81,7 @@ export function ContentEditor({
     latest.current = { fields: next, revision: rev };
     setFields(next);
     setRevision(rev);
+    onPreviewChange?.(next, true);
   }
 
   function enqueueSave(explicit: boolean) {
@@ -96,6 +99,7 @@ export function ContentEditor({
         }
         if (explicit) toast.success("Saved");
         if (inFlight.current === 0) setSaveState("saved");
+        if (rev === latest.current.revision) onPreviewChange?.(snapshot, false);
         return;
       }
       inFlight.current += 1;
@@ -119,6 +123,7 @@ export function ContentEditor({
           setSavedRevision(rev);
         }
         setSaveError(null);
+        if (rev === latest.current.revision) onPreviewChange?.(snapshot, false);
         if (res.movedToReview) {
           toast.warning(
             "This post was approved, so the edit sent it back to review. Its queued posts are on hold until it is approved again."
@@ -176,6 +181,7 @@ export function ContentEditor({
     setSavedRevision(rev);
     setSaveState("idle");
     setSaveError(null);
+    onPreviewChange?.(saved.current.fields, false);
   }
 
   function onEdit<K extends keyof Fields>(key: K, value: Fields[K]) {
@@ -217,12 +223,13 @@ export function ContentEditor({
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-11"
             disabled={busy || !dirty}
             onClick={discard}
           >
             Discard
           </Button>
-          <Button type="button" size="sm" disabled={busy} onClick={saveNow}>
+          <Button type="button" size="sm" className="min-h-11" disabled={busy} onClick={saveNow}>
             {saveState === "failed" && dirty ? "Retry save" : "Save"}
           </Button>
         </div>
@@ -238,63 +245,63 @@ export function ContentEditor({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-2 sm:col-span-2">
-          <Label>Title</Label>
-          <Input value={fields.title} onChange={(e) => onEdit("title", e.target.value)} />
+          <Label htmlFor={`content-${contentId}-title`}>Title</Label>
+          <Input id={`content-${contentId}-title`} value={fields.title} onChange={(e) => onEdit("title", e.target.value)} />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>Hook</Label>
-          <Input value={fields.hook} onChange={(e) => onEdit("hook", e.target.value)} />
+          <Label htmlFor={`content-${contentId}-hook`}>Hook</Label>
+          <Input id={`content-${contentId}-hook`} value={fields.hook} onChange={(e) => onEdit("hook", e.target.value)} />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>Caption</Label>
+          <Label htmlFor={`content-${contentId}-caption`}>Caption</Label>
           <Textarea
             rows={5}
-            value={fields.caption}
+            id={`content-${contentId}-caption`} value={fields.caption}
             onChange={(e) => onEdit("caption", e.target.value)}
           />
         </div>
         <div className="space-y-2">
-          <Label>CTA</Label>
+          <Label htmlFor={`content-${contentId}-call_to_action`}>CTA</Label>
           <Input
-            value={fields.call_to_action}
+            id={`content-${contentId}-call_to_action`} value={fields.call_to_action}
             onChange={(e) => onEdit("call_to_action", e.target.value)}
           />
         </div>
         <div className="space-y-2">
-          <Label>Hashtags</Label>
+          <Label htmlFor={`content-${contentId}-hashtags`}>Hashtags</Label>
           <Input
-            value={fields.hashtags}
+            id={`content-${contentId}-hashtags`} value={fields.hashtags}
             onChange={(e) => onEdit("hashtags", e.target.value)}
             placeholder="comma separated"
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>On-screen text</Label>
+          <Label htmlFor={`content-${contentId}-on_screen_text`}>On-screen text</Label>
           <Input
-            value={fields.on_screen_text}
+            id={`content-${contentId}-on_screen_text`} value={fields.on_screen_text}
             onChange={(e) => onEdit("on_screen_text", e.target.value)}
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>Video / reel concept</Label>
+          <Label htmlFor={`content-${contentId}-video_concept`}>Video / reel concept</Label>
           <Textarea
             rows={2}
-            value={fields.video_concept}
+            id={`content-${contentId}-video_concept`} value={fields.video_concept}
             onChange={(e) => onEdit("video_concept", e.target.value)}
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>Voiceover script</Label>
+          <Label htmlFor={`content-${contentId}-voiceover_script`}>Voiceover script</Label>
           <Textarea
             rows={2}
-            value={fields.voiceover_script}
+            id={`content-${contentId}-voiceover_script`} value={fields.voiceover_script}
             onChange={(e) => onEdit("voiceover_script", e.target.value)}
           />
         </div>
         <div className="space-y-2">
-          <Label>Alt text</Label>
+          <Label htmlFor={`content-${contentId}-alt_text`}>Alt text</Label>
           <Input
-            value={fields.alt_text}
+            id={`content-${contentId}-alt_text`} value={fields.alt_text}
             onChange={(e) => onEdit("alt_text", e.target.value)}
           />
         </div>
@@ -310,9 +317,9 @@ export function ContentEditor({
           </p>
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label>Posting recommendation</Label>
+          <Label htmlFor={`content-${contentId}-posting_recommendation`}>Posting recommendation</Label>
           <Input
-            value={fields.posting_recommendation}
+            id={`content-${contentId}-posting_recommendation`} value={fields.posting_recommendation}
             onChange={(e) => onEdit("posting_recommendation", e.target.value)}
           />
         </div>

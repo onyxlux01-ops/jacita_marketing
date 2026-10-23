@@ -195,16 +195,16 @@ export function AutomationControlCentre({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [status, setStatus] = useState(initialStatus);
-  const [activity, setActivity] = useState(initialActivity);
-  const [workQueue, setWorkQueue] = useState(initialWorkQueue);
-  const [upcoming, setUpcoming] = useState(initialUpcoming);
-  const [approvals, setApprovals] = useState(initialApprovals);
-  const [published, setPublished] = useState(initialPublished);
-  const [insights, setInsights] = useState(initialInsights);
-  const [timeline, setTimeline] = useState(initialTimeline);
-  const [attention, setAttention] = useState(initialAttention);
-  const [health, setHealth] = useState(initialHealth);
+  const status = initialStatus;
+  const activity = initialActivity;
+  const workQueue = initialWorkQueue;
+  const upcoming = initialUpcoming;
+  const approvals = initialApprovals;
+  const published = initialPublished;
+  const insights = initialInsights;
+  const timeline = initialTimeline;
+  const attention = initialAttention;
+  const health = initialHealth;
 
   const [pauseOpen, setPauseOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
@@ -227,18 +227,11 @@ export function AutomationControlCentre({
     [approvals, upcoming, previewId]
   );
 
-  // Keep props in sync when business switches (server re-render)
-  useEffect(() => {
-    setStatus(initialStatus);
-    setActivity(initialActivity);
-    setWorkQueue(initialWorkQueue);
-    setUpcoming(initialUpcoming);
-    setApprovals(initialApprovals);
-    setPublished(initialPublished);
-    setInsights(initialInsights);
-    setTimeline(initialTimeline);
-    setAttention(initialAttention);
-    setHealth(initialHealth);
+  // Reset editable settings before committing a newly received business
+  // snapshot. Read-only panels use server props directly, without a stale render.
+  const [settingsSnapshot, setSettingsSnapshot] = useState(initialStatus);
+  if (settingsSnapshot !== initialStatus) {
+    setSettingsSnapshot(initialStatus);
     setPosts(initialStatus.postsPerWeek);
     setStories(initialStatus.storiesPerWeek);
     setReels(initialStatus.reelsPerWeek);
@@ -246,18 +239,14 @@ export function AutomationControlCentre({
     setPrefs(initialStatus.contentPreferences);
     setGoals(initialStatus.primaryGoals);
     setFreedom(initialStatus.freedomLevel);
-  }, [
-    initialStatus,
-    initialActivity,
-    initialWorkQueue,
-    initialUpcoming,
-    initialApprovals,
-    initialPublished,
-    initialInsights,
-    initialTimeline,
-    initialAttention,
-    initialHealth,
-  ]);
+    if (settingsSnapshot.organisationId !== initialStatus.organisationId) {
+      setPauseOpen(false);
+      setResumeOpen(false);
+      setModeOpen(null);
+      setStopOpen(false);
+      setPreviewId(null);
+    }
+  }
 
   // Realtime - refresh when this business changes
   useEffect(() => {
