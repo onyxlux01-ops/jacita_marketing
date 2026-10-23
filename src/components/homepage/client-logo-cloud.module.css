@@ -1,0 +1,77 @@
+.section {
+  background-image:
+    radial-gradient(
+      circle at 20% 90%,
+      rgba(47, 107, 255, 0.055),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 80% 10%,
+      rgba(196, 59, 255, 0.06),
+      transparent 36%
+    );
+}
+
+.glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 10%,
+    rgba(255, 255, 255, 0.6) 48%,
+    transparent 85%
+  );
+  opacity: 0.45;
+}
+
+.logoCard {
+  transition:
+    transform 250ms ease,
+    box-shadow 250ms ease;
+}
+
+.logoCard img {
+  animation: logo-arrive 750ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.logoCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 60px rgba(36, 41, 73, 0.11);
+}
+
+.emptyMark {
+  display: block;
+  width: 62px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 11px;
+  box-shadow: 0 8px 25px rgba(36, 41, 73, 0.04);
+}
+
+@keyframes logo-arrive {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(24px) rotateX(-12deg);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) rotateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoCard img {
+    animation: none;
+  }
+
+  .logoCard {
+    transition: none;
+  }
+
+  .logoCard:hover {
+    transform: none;
+  }
+}
