@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Building2,
   Briefcase,
   CalendarDays,
   Home,
@@ -19,19 +20,23 @@ import { BusinessSwitcher } from "@/components/layout/business-switcher";
 import { cn } from "@/lib/utils";
 
 const PRIMARY = [
-  { href: "/app", label: "Home", icon: Home, exact: true },
-  { href: "/app/automation", label: "Automation", icon: Zap },
-  { href: "/app/content", label: "Content", icon: Sparkles },
+  { href: "/app", label: "Overview", icon: Home, exact: true },
+  { href: "/app/businesses", label: "Businesses", icon: Building2 },
+  { href: "/app/content", label: "Content Studio", icon: Sparkles },
   { href: "/app/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/app/automation", label: "Automation", icon: Zap },
+  { href: "/app/analytics", label: "Analytics", icon: BarChart3 },
+];
+
+const LIBRARY = [
   { href: "/app/media", label: "Media", icon: ImageIcon },
   { href: "/app/services", label: "Services", icon: Briefcase },
   { href: "/app/campaigns", label: "Campaigns", icon: Megaphone },
-  { href: "/app/analytics", label: "Analytics", icon: BarChart3 },
 ] as const;
 
 const SECONDARY = [
   { href: "/app/social", label: "Social Accounts", icon: Share2 },
-  { href: "/app/settings", label: "Business Settings", icon: Settings },
+  { href: "/app/settings", label: "Settings", icon: Settings },
 ] as const;
 
 function NavLink({
@@ -58,7 +63,7 @@ function NavLink({
         "jacita-press group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
       )}
     >
       <Icon
@@ -66,7 +71,7 @@ function NavLink({
           "size-[15px] shrink-0 transition-colors",
           active
             ? "text-sidebar-primary"
-            : "text-sidebar-foreground/45 group-hover:text-sidebar-foreground/80"
+            : "text-sidebar-foreground/45 group-hover:text-sidebar-foreground/80",
         )}
       />
       {label}
@@ -88,16 +93,14 @@ export function AppSidebar({
   return (
     <aside
       className={cn(
-        "w-[240px] shrink-0 flex-col bg-sidebar text-sidebar-foreground",
-        className ?? "hidden lg:flex"
+        "workspace-sidebar shrink-0 flex-col bg-sidebar text-sidebar-foreground",
+        className ?? "hidden lg:flex",
       )}
     >
-      <div className="flex h-14 items-center px-4">
-        <Link
-          href="/app"
-          className="font-heading text-[17px] font-semibold tracking-tight text-sidebar-foreground"
-        >
-          Jacita
+      <div className="workspace-brand">
+        <Link href="/app" aria-label="JACITA Marketing overview">
+          <span className="brand-name">JACITA</span>
+          <span className="brand-subtitle">MARKETING</span>
         </Link>
       </div>
 
@@ -121,6 +124,12 @@ export function AppSidebar({
           ))}
         </div>
         <div className="space-y-0.5">
+          <p className="jacita-label mb-2 px-2.5">Library</p>
+          {LIBRARY.map((item) => (
+            <NavLink key={item.href} {...item} />
+          ))}
+        </div>
+        <div className="space-y-0.5">
           <p className="jacita-label mb-2 px-2.5 text-sidebar-foreground/35">
             Business
           </p>
@@ -130,11 +139,10 @@ export function AppSidebar({
         </div>
       </nav>
 
-      <div className="border-t border-sidebar-border px-4 py-3">
-        <p className="text-[11px] leading-relaxed text-sidebar-foreground/40">
-          AI marketing workspace
-        </p>
-      </div>
+      <footer>
+        <strong>Made for your businesses.</strong>A private space to plan,
+        create and grow.
+      </footer>
     </aside>
   );
 }
@@ -146,13 +154,7 @@ export function MobileBottomNav() {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     exact?: boolean;
-  }> = [
-    PRIMARY[0],
-    PRIMARY[1],
-    PRIMARY[2],
-    PRIMARY[3],
-    PRIMARY[6],
-  ];
+  }> = [PRIMARY[0], PRIMARY[4], PRIMARY[2], PRIMARY[3], PRIMARY[5]];
 
   return (
     <nav className="jacita-dock fixed inset-x-0 bottom-0 z-40 border-t border-border/60 lg:hidden">
@@ -169,7 +171,7 @@ export function MobileBottomNav() {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "jacita-press flex min-h-11 flex-col items-center gap-1 px-1 py-2.5 text-xs font-medium",
-                  active ? "text-primary" : "text-muted-foreground"
+                  active ? "text-primary" : "text-muted-foreground",
                 )}
               >
                 <Icon className="size-4" />

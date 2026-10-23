@@ -17,6 +17,7 @@
     "test:meta-suite": "node scripts/meta-completion-suite.mjs",
     "test:timezone": "node --test scripts/timezone-unit.test.mts",
     "test:unit": "node --test scripts/timezone-unit.test.mts scripts/safe-next-unit.test.mts scripts/publish-preview-unit.test.mts",
+    "test:dashboard": "node --conditions=react-server --import tsx --test scripts/dashboard-overview.test.ts",
     "test:preview": "node --import tsx --test scripts/social-preview-render.test.tsx",
     "check:social": "node scripts/check-social-config.mjs",
     "check:openai": "node --env-file=.env.local scripts/check-openai.mjs",

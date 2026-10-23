@@ -75,6 +75,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/forgot-password`, `/reset-password` | Password recovery (email link → new password) |
 | `/invite/<id>` | Accept an invitation to a business |
 | `/app` | Business dashboard |
+| `/app/businesses` | Client portfolio, business switching, profile and automation access |
 | `/app/content` | Content workflow (draft → review → approved → scheduled → published) |
 | `/app/content/new` | AI content generation |
 | `/app/calendar` | Content calendar |

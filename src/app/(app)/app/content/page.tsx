@@ -73,39 +73,42 @@ export default async function ContentListPage({
   if (active && hasSupabaseEnv()) {
     try {
       const supabase = await createClient();
-      const [{ data: serviceData }, { data: campaignData }] = await Promise.all([
-        supabase
-          .from("products_services")
-          .select("id, name")
-          .eq("organisation_id", active.id)
-          .eq("is_active", true)
-          .order("name")
-          .limit(40),
-        supabase
-          .from("campaigns")
-          .select("id, name")
-          .eq("organisation_id", active.id)
-          .order("created_at", { ascending: false })
-          .limit(40),
-      ]);
+      const [{ data: serviceData }, { data: campaignData }] = await Promise.all(
+        [
+          supabase
+            .from("products_services")
+            .select("id, name")
+            .eq("organisation_id", active.id)
+            .eq("is_active", true)
+            .order("name")
+            .limit(40),
+          supabase
+            .from("campaigns")
+            .select("id, name")
+            .eq("organisation_id", active.id)
+            .order("created_at", { ascending: false })
+            .limit(40),
+        ],
+      );
       services = serviceData ?? [];
       campaigns = campaignData ?? [];
 
       let query = supabase
         .from("content")
         .select(
-          "id, title, status, content_type, updated_at, caption, hook, product_service_id, campaign_id, content_platforms(platform)"
+          "id, title, status, content_type, updated_at, caption, hook, product_service_id, campaign_id, content_platforms(platform)",
         )
         .eq("organisation_id", active.id)
         .order("updated_at", { ascending: false });
 
       if (statusFilter !== "all") query = query.eq("status", statusFilter);
       if (params.type) query = query.eq("content_type", params.type);
-      if (params.service) query = query.eq("product_service_id", params.service);
+      if (params.service)
+        query = query.eq("product_service_id", params.service);
       if (params.campaign) query = query.eq("campaign_id", params.campaign);
       if (params.q) {
         query = query.or(
-          `title.ilike.%${params.q}%,caption.ilike.%${params.q}%,hook.ilike.%${params.q}%`
+          `title.ilike.%${params.q}%,caption.ilike.%${params.q}%,hook.ilike.%${params.q}%`,
         );
       }
 
@@ -150,7 +153,7 @@ export default async function ContentListPage({
         <div>
           <p className="jacita-label">Workspace</p>
           <h1 className="mt-2 font-heading text-[1.75rem] font-semibold tracking-tight">
-            Content
+            Content Studio
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Library and approvals for {active?.name ?? "your business"}.
@@ -169,7 +172,9 @@ export default async function ContentListPage({
         </div>
       </header>
 
-      <Suspense fallback={<Skeleton className="h-9 w-full max-w-xl rounded-lg" />}>
+      <Suspense
+        fallback={<Skeleton className="h-9 w-full max-w-xl rounded-lg" />}
+      >
         <ContentFilters
           current={statusFilter}
           tabs={FILTER_TABS}
@@ -198,10 +203,10 @@ export default async function ContentListPage({
                 "group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-transform duration-200 hover:-translate-y-0.5",
                 index < 3 && "jacita-enter",
                 index === 1 && "jacita-enter-delay-1",
-                index === 2 && "jacita-enter-delay-2"
+                index === 2 && "jacita-enter-delay-2",
               )}
             >
-              <div className="relative aspect-[4/5] bg-gradient-to-br from-[#d7e4e1] via-[#eef2f1] to-[#c5d4d0]">
+              <div className="content-cover relative">
                 <div className="absolute inset-0 flex items-end p-4">
                   <p className="line-clamp-3 text-sm font-medium text-foreground/90">
                     {item.hook || item.caption || "Untitled draft"}

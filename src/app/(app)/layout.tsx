@@ -8,6 +8,7 @@ import {
   getUserOrganisations,
 } from "@/lib/org";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
+import "./workspace.css";
 
 export default async function AppShellLayout({
   children,
@@ -19,8 +20,7 @@ export default async function AppShellLayout({
 
   const user = await getSessionUser();
   const organisations = await getUserOrganisations();
-  const isOnboarding =
-    pathname.startsWith("/app/onboarding");
+  const isOnboarding = pathname.startsWith("/app/onboarding");
 
   if (user && organisations.length === 0 && !isOnboarding) {
     redirect("/app/onboarding");
@@ -29,6 +29,7 @@ export default async function AppShellLayout({
   const active = await getActiveOrganisation(organisations);
 
   let unreadCount = 0;
+  let attentionCount: number | null = null;
   if (user && hasSupabaseEnv()) {
     try {
       const supabase = await createClient();
@@ -38,27 +39,41 @@ export default async function AppShellLayout({
         .eq("user_id", user.id)
         .is("read_at", null);
       unreadCount = count ?? 0;
+      if (active) {
+        const { count: needsReview, error } = await supabase
+          .from("content")
+          .select("id", { count: "exact", head: true })
+          .eq("organisation_id", active.id)
+          .in("status", ["review", "failed"]);
+        if (!error) attentionCount = needsReview ?? 0;
+      }
     } catch {
       unreadCount = 0;
     }
   }
 
   return (
-    <div className="flex min-h-svh bg-background">
-      <a href="#main-content" className="sr-only z-50 rounded-lg bg-background p-3 text-foreground shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to main content</a>
+    <div className="workspace-theme dark workspace-shell flex min-h-svh bg-background">
+      <a
+        href="#main-content"
+        className="sr-only z-50 rounded-lg bg-background p-3 text-foreground shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to main content
+      </a>
       <AppSidebar
         organisations={organisations}
         active={active}
         canAddBusiness={Boolean(user?.is_platform_admin)}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="workspace-body flex min-w-0 flex-1 flex-col">
         <AppTopbar
           organisations={organisations}
           active={active}
           user={user}
           unreadCount={unreadCount}
+          attentionCount={attentionCount}
         />
-        <main id="main-content" tabIndex={-1} className="flex-1 px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:pb-8">
+        <main id="main-content" tabIndex={-1} className="workspace-main flex-1">
           {children}
         </main>
       </div>

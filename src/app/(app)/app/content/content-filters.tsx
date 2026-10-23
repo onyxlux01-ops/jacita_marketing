@@ -43,7 +43,7 @@ export function ContentFilters({
           update("status", value === "all" ? null : value)
         }
       >
-        <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto">
+        <TabsList aria-label="Filter content by status" className="content-status-tabs h-auto w-full max-w-full justify-start overflow-x-auto">
           {tabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="px-3">
               {tab.label}
@@ -53,6 +53,7 @@ export function ContentFilters({
       </Tabs>
       <div className="flex flex-wrap gap-2">
         <Input
+          aria-label="Search content by title or caption"
           defaultValue={searchParams.get("q") || ""}
           placeholder="Search title or caption…"
           className="h-9 max-w-xs"
@@ -66,7 +67,10 @@ export function ContentFilters({
           value={searchParams.get("platform") || "all"}
           onValueChange={(v) => update("platform", v ?? null)}
         >
-          <SelectTrigger className="h-9 w-[140px]">
+          <SelectTrigger
+            className="h-9 w-[140px]"
+            aria-label="Filter content by platform"
+          >
             <SelectValue placeholder="Platform" />
           </SelectTrigger>
           <SelectContent>
@@ -80,7 +84,10 @@ export function ContentFilters({
           value={searchParams.get("type") || "all"}
           onValueChange={(v) => update("type", v ?? null)}
         >
-          <SelectTrigger className="h-9 w-[160px]">
+          <SelectTrigger
+            className="h-9 w-[160px]"
+            aria-label="Filter content by type"
+          >
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -97,7 +104,10 @@ export function ContentFilters({
             value={searchParams.get("service") || "all"}
             onValueChange={(v) => update("service", v ?? null)}
           >
-            <SelectTrigger className="h-9 w-[160px]">
+            <SelectTrigger
+              className="h-9 w-[160px]"
+              aria-label="Filter content by service"
+            >
               <SelectValue placeholder="Service" />
             </SelectTrigger>
             <SelectContent>
@@ -115,7 +125,10 @@ export function ContentFilters({
             value={searchParams.get("campaign") || "all"}
             onValueChange={(v) => update("campaign", v ?? null)}
           >
-            <SelectTrigger className="h-9 w-[160px]">
+            <SelectTrigger
+              className="h-9 w-[160px]"
+              aria-label="Filter content by campaign"
+            >
               <SelectValue placeholder="Campaign" />
             </SelectTrigger>
             <SelectContent>

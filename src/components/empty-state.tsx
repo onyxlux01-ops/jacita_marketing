@@ -24,7 +24,7 @@ export function EmptyState({
 }) {
   return (
     <Card className={cn("items-center py-10 text-center", className)} size="sm">
-      <CardHeader className="items-center px-6">
+      <CardHeader className="w-full max-w-xl items-center justify-items-center px-6">
         {Icon ? (
           <div className="mb-1 flex size-11 items-center justify-center rounded-full bg-accent text-primary">
             <Icon className="size-5" />
@@ -33,7 +33,7 @@ export function EmptyState({
         <CardTitle className="font-heading text-lg font-semibold tracking-tight">
           {title}
         </CardTitle>
-        <CardDescription className="max-w-md text-sm leading-relaxed">
+        <CardDescription className="w-full max-w-md text-sm leading-relaxed">
           {description}
         </CardDescription>
       </CardHeader>

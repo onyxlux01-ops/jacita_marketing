@@ -50,7 +50,7 @@ export default async function CalendarPage({
         supabase
           .from("content")
           .select(
-            "id, title, status, scheduled_at, content_type, hook, content_platforms(platform, publish_status, social_account_id)"
+            "id, title, status, scheduled_at, content_type, hook, content_platforms(platform, publish_status, social_account_id)",
           )
           .eq("organisation_id", active.id)
           .not("scheduled_at", "is", null)
@@ -60,6 +60,8 @@ export default async function CalendarPage({
             "published",
             "failed",
             "approved",
+            "draft",
+            "review",
           ]),
         supabase
           .from("social_accounts")
@@ -68,10 +70,10 @@ export default async function CalendarPage({
       ]);
 
       const accountStatus = Object.fromEntries(
-        (accounts ?? []).map((a) => [a.id, a.connection_status])
+        (accounts ?? []).map((a) => [a.id, a.connection_status]),
       );
       disconnectedAccounts = (accounts ?? []).filter(
-        (a) => a.connection_status !== "connected"
+        (a) => a.connection_status !== "connected",
       ).length;
 
       items =
@@ -125,7 +127,8 @@ export default async function CalendarPage({
     const key = format(day, "yyyy-MM-dd");
     return items.filter(
       (i) =>
-        i.scheduled_at && format(new Date(i.scheduled_at), "yyyy-MM-dd") === key
+        i.scheduled_at &&
+        format(new Date(i.scheduled_at), "yyyy-MM-dd") === key,
     );
   }
 
@@ -162,7 +165,7 @@ export default async function CalendarPage({
                 "rounded-md px-3.5 py-1.5 text-sm transition-colors",
                 currentView === "week"
                   ? "bg-card font-medium text-foreground shadow-sm"
-                  : "text-muted-foreground"
+                  : "text-muted-foreground",
               )}
             >
               Week
@@ -173,7 +176,7 @@ export default async function CalendarPage({
                 "rounded-md px-3.5 py-1.5 text-sm transition-colors",
                 currentView === "month"
                   ? "bg-card font-medium text-foreground shadow-sm"
-                  : "text-muted-foreground"
+                  : "text-muted-foreground",
               )}
             >
               Month
@@ -202,7 +205,10 @@ export default async function CalendarPage({
               const dayItems = itemsForDay(day);
               const isToday = isSameDay(day, today);
               return (
-                <div key={day.toISOString()} className="min-h-44 bg-card p-3">
+                <div
+                  key={day.toISOString()}
+                  className="calendar-week-day min-h-44 bg-card p-3"
+                >
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-muted-foreground">
                       {format(day, "EEE")}
@@ -212,7 +218,7 @@ export default async function CalendarPage({
                         "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
                         isToday
                           ? "bg-primary text-primary-foreground"
-                          : "text-foreground"
+                          : "text-foreground",
                       )}
                     >
                       {format(day, "d")}
@@ -250,8 +256,8 @@ export default async function CalendarPage({
                       </li>
                     ))}
                     {dayItems.length === 0 ? (
-                      <li className="rounded-lg border border-dashed border-border/70 px-2 py-3 text-center text-[10px] text-muted-foreground/70">
-                        Open
+                      <li className="py-3 text-xs text-muted-foreground">
+                        No posts planned
                       </li>
                     ) : null}
                   </ul>
@@ -281,13 +287,15 @@ export default async function CalendarPage({
                   key={day.toISOString()}
                   className={cn(
                     "min-h-22 rounded-xl p-1.5",
-                    inMonth ? "bg-muted/40" : "opacity-40"
+                    inMonth ? "bg-muted/40" : "opacity-40",
                   )}
                 >
                   <p
                     className={cn(
                       "text-[11px] font-medium",
-                      isSameDay(day, today) ? "text-primary" : "text-muted-foreground"
+                      isSameDay(day, today)
+                        ? "text-primary"
+                        : "text-muted-foreground",
                     )}
                   >
                     {format(day, "d")}
@@ -299,7 +307,16 @@ export default async function CalendarPage({
                           href={`/app/content/${item.id}`}
                           className="block truncate rounded-md bg-card px-1.5 py-1 text-[10px] font-medium shadow-sm hover:text-primary"
                         >
-                          {item.title || "Untitled"}
+                          <span className="block truncate">
+                            {item.title || "Untitled"}
+                          </span>
+                          <span className="mt-1 block text-[9px] text-muted-foreground">
+                            {item.status === "review"
+                              ? "Awaiting approval"
+                              : item.status === "draft"
+                                ? "Planned draft"
+                                : item.status}
+                          </span>
                         </Link>
                       </li>
                     ))}

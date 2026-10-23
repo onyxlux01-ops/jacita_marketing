@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { switchOrganisation } from "@/app/(app)/app/actions/org";
 import type { OrganisationSummary } from "@/lib/org";
 import { CREATE_BUSINESS_ADMIN_ONLY_MESSAGE } from "@/lib/org/business-creation";
@@ -48,7 +49,7 @@ export function BusinessSwitcher({
           variant === "compact" &&
             "flex max-w-[220px] items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50",
           variant === "page" &&
-            "w-full max-w-md rounded-lg py-1 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+            "w-full max-w-md rounded-lg py-1 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring",
         )}
       >
         <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
@@ -61,7 +62,7 @@ export function BusinessSwitcher({
                   : "text-[15px]",
                 variant === "sidebar"
                   ? "text-sidebar-foreground"
-                  : "text-foreground"
+                  : "text-foreground",
               )}
             >
               {active?.name ?? "No business"}
@@ -72,7 +73,7 @@ export function BusinessSwitcher({
                 variant === "sidebar"
                   ? "text-sidebar-foreground/55"
                   : "text-muted-foreground",
-                variant === "compact" && "text-xs"
+                variant === "compact" && "text-xs",
               )}
             >
               {subtitle}
@@ -84,7 +85,7 @@ export function BusinessSwitcher({
               variant === "page" ? "mt-2 size-4" : "mt-1 size-3.5",
               variant === "sidebar"
                 ? "text-sidebar-foreground"
-                : "text-foreground"
+                : "text-foreground",
             )}
           />
         </div>
@@ -106,7 +107,12 @@ export function BusinessSwitcher({
               key={org.id}
               onSelect={() => {
                 startTransition(async () => {
-                  await switchOrganisation(org.id);
+                  try {
+                    const result = await switchOrganisation(org.id);
+                    if (result.error) toast.error(result.error);
+                  } catch {
+                    toast.error("Could not switch business. Please try again.");
+                  }
                 });
               }}
               className="flex items-start justify-between gap-3 py-2.5"
@@ -120,7 +126,7 @@ export function BusinessSwitcher({
               <Check
                 className={cn(
                   "mt-0.5 size-3.5 shrink-0 text-primary",
-                  active?.id === org.id ? "opacity-100" : "opacity-0"
+                  active?.id === org.id ? "opacity-100" : "opacity-0",
                 )}
               />
             </DropdownMenuItem>

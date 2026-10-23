@@ -1,454 +1,496 @@
 import Link from "next/link";
-import { format } from "date-fns";
-import { ArrowRight } from "lucide-react";
-import { StatusBadge } from "@/components/content/status-badge";
-import { PlatformIcons } from "@/components/content/platform-icons";
-import { SetupChecklist } from "@/components/dashboard/setup-checklist";
-import { BusinessSwitcher } from "@/components/layout/business-switcher";
-import { Button } from "@/components/ui/button";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Building2,
+  CalendarDays,
+  CheckCheck,
+  CircleAlert,
+  FileCheck2,
+  Layers3,
+  Radio,
+  ShieldCheck,
+  Sparkles,
+  Wallet,
+} from "lucide-react";
 import {
   getActiveOrganisation,
   getSessionUser,
   getUserOrganisations,
 } from "@/lib/org";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient, hasSupabaseEnv } from "@/lib/supabase/server";
-import { ensureAutomationSettings } from "@/lib/automation";
-import type { ContentStatus, SocialPlatform } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { getOverview } from "@/lib/dashboard/overview";
+import { createClient } from "@/lib/supabase/server";
+import { PerformancePanel } from "@/components/dashboard/performance-panel";
+import { OutcomesPanel } from "@/components/dashboard/outcomes-panel";
+import { PeriodFilter } from "@/components/dashboard/period-filter";
+import { Button } from "@/components/ui/button";
 
-type ContentPreview = {
-  id: string;
-  title: string | null;
-  status: ContentStatus;
-  scheduled_at: string | null;
-  caption: string | null;
-  hook: string | null;
-  content_type: string | null;
-  platforms: SocialPlatform[];
-};
-
-function contentTypeLabel(type: string | null) {
-  if (!type) return "Post";
-  return type.replaceAll("_", " ");
-}
-
-function thumbTone(index: number) {
-  const tones = [
-    "from-[#d7e4e1] via-[#eef2f1] to-[#c5d4d0]",
-    "from-[#e2e0d8] via-[#f3f1eb] to-[#d0cdc4]",
-    "from-[#d9e0e8] via-[#eef1f5] to-[#c8d0db]",
-  ];
-  return tones[index % tones.length];
-}
-
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
+  const params = await searchParams;
+  const days = params.range === "30d" ? 30 : params.range === "90d" ? 90 : 7;
   const [orgs, user] = await Promise.all([
     getUserOrganisations(),
     getSessionUser(),
   ]);
   const active = await getActiveOrganisation(orgs);
-  const orgId = active?.id ?? null;
-
-  let settings = null as Awaited<
-    ReturnType<typeof ensureAutomationSettings>
-  > | null;
-  let activity: Array<{
-    id: string;
-    message: string;
-    severity: string;
-    event_type: string;
-    created_at: string;
-  }> = [];
-  let upcoming: ContentPreview[] = [];
-  let attention: ContentPreview[] = [];
-  let learned: string[] = [];
-  let counts = { scheduled: 0, publishedWeek: 0, review: 0 };
-  let setupProgress = null as Awaited<
-    ReturnType<typeof import("@/lib/org/setup-progress").getSetupProgress>
-  >;
-
-  if (orgId && hasSupabaseEnv()) {
+  let data = null;
+  let error = false;
+  if (active) {
     try {
-      const supabase = await createClient();
-      const admin = createAdminClient();
-      settings = await ensureAutomationSettings(admin, orgId);
-
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-
-      const [
-        { data: content },
-        { data: act },
-        { data: insights },
-        progress,
-      ] = await Promise.all([
-        supabase
-          .from("content")
-          .select(
-            "id, title, status, scheduled_at, caption, hook, content_type, published_at, content_platforms(platform)"
-          )
-          .eq("organisation_id", orgId)
-          .order("updated_at", { ascending: false })
-          .limit(40),
-        supabase
-          .from("automation_activity")
-          .select("id, message, severity, event_type, created_at")
-          .eq("organisation_id", orgId)
-          .order("created_at", { ascending: false })
-          .limit(8),
-        supabase
-          .from("automation_activity")
-          .select("message")
-          .eq("organisation_id", orgId)
-          .eq("event_type", "learning")
-          .order("created_at", { ascending: false })
-          .limit(3),
-        (async () => {
-          const { getSetupProgress } = await import("@/lib/org/setup-progress");
-          return getSetupProgress(supabase, orgId);
-        })(),
-      ]);
-
-      setupProgress = progress;
-      activity = act ?? [];
-      learned = (insights ?? []).map((i) => i.message);
-
-      const rows = (content ?? []).map((row) => {
-        const platformsRaw = (
-          row as {
-            content_platforms?: Array<{ platform: SocialPlatform }> | null;
-          }
-        ).content_platforms;
-        return {
-          id: row.id,
-          title: row.title,
-          status: row.status as ContentStatus,
-          scheduled_at: row.scheduled_at,
-          caption: row.caption,
-          hook: row.hook,
-          content_type: row.content_type,
-          published_at: row.published_at as string | null,
-          platforms: (platformsRaw ?? []).map((p) => p.platform),
-        };
-      });
-
-      upcoming = rows
-        .filter((r) =>
-          ["scheduled", "approved", "review"].includes(r.status)
-        )
-        .sort((a, b) => {
-          const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
-          const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
-          return ta - tb;
-        })
-        .slice(0, 6);
-
-      attention = rows.filter((r) =>
-        ["review", "failed"].includes(r.status)
-      ).slice(0, 5);
-
-      counts = {
-        scheduled: rows.filter((r) => r.status === "scheduled").length,
-        review: rows.filter((r) => r.status === "review").length,
-        publishedWeek: rows.filter((r) => {
-          if (r.status !== "published") return false;
-          const t = r.published_at ? new Date(r.published_at) : null;
-          return t ? t >= weekAgo : false;
-        }).length,
-      };
+      data = await getOverview(await createClient(), active.id, days);
     } catch {
-      // keep defaults
+      error = true;
     }
   }
-
-  const firstName = user?.full_name?.split(" ")[0];
-  const businessLabel = active?.name ?? "your business";
-  const categoryLine = [active?.business_category, active?.location]
-    .filter(Boolean)
-    .join(" · ");
-
-  const automationOn =
-    settings?.enabled && settings.mode !== "off" && !settings.paused;
-  const nextPost = upcoming.find((u) => u.scheduled_at) || upcoming[0] || null;
-  const workingOn =
-    settings?.state_message ||
-    (automationOn
-      ? "Monitoring pipeline and preparing content"
-      : "Automation is off — start it to let AI manage marketing");
-
+  const automation = data?.settings;
+  const automationState = automation?.paused
+    ? "Paused"
+    : automation?.enabled && automation.mode !== "off"
+      ? `${automation.mode} enabled`
+      : "Off";
+  const stats = [
+    {
+      label: "Active businesses",
+      value: orgs.filter((o) => o.status === "active").length,
+      note: "Across your workspace",
+      href: "/app/businesses",
+      icon: Building2,
+    },
+    {
+      label: "Awaiting approval",
+      value: data?.totals.review,
+      note: "Drafts ready for your review",
+      href: "/app/content?status=review",
+      icon: FileCheck2,
+    },
+    {
+      label: "Scheduled posts",
+      value: data?.totals.scheduled,
+      note: "Queued · not yet published",
+      href: "/app/content?status=scheduled",
+      icon: CalendarDays,
+    },
+    {
+      label: "Confirmed publications",
+      value: data?.publications,
+      note: `Provider confirmations · ${days} days`,
+      href: "/app/social",
+      icon: CheckCheck,
+    },
+    {
+      label: "Needs attention",
+      value: data?.attentionCount,
+      note:
+        data && !data.holdsAvailable
+          ? "Known items · holds unavailable"
+          : "Content, connections & setup",
+      href: "#weekly-review",
+      icon: CircleAlert,
+    },
+  ];
+  const pipeline = [
+    {
+      label: "Draft",
+      count: data?.totals.draft,
+      status: "draft",
+      detail: "Brief & caption in progress",
+      tone: "neutral",
+    },
+    {
+      label: "In review",
+      count: data?.totals.review,
+      status: "review",
+      detail: "Waiting for approval",
+      tone: "purple",
+    },
+    {
+      label: "Approved",
+      count: data?.totals.approved,
+      status: "approved",
+      detail: "Signed off · not queued",
+      tone: "teal",
+    },
+    {
+      label: "Scheduled",
+      count: data?.totals.scheduled,
+      status: "scheduled",
+      detail: "Queued for a future time",
+      tone: "teal",
+    },
+    {
+      label: "Publishing",
+      count: data?.totals.publishing,
+      status: "publishing",
+      detail: "Awaiting provider outcome",
+      tone: "purple",
+    },
+    {
+      label: "Published",
+      count: data?.publishedContent,
+      status: "published",
+      detail: "Provider confirmed · all time",
+      tone: "teal",
+    },
+  ];
+  const money = (pence: number) =>
+    new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    }).format(pence / 100);
   return (
-    <div className="jacita-page jacita-enter max-w-5xl">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="hidden lg:block">
-            <BusinessSwitcher
-              organisations={orgs}
-              active={active}
-              variant="page"
-              canAddBusiness={Boolean(user?.is_platform_admin)}
-            />
-          </div>
-          <div className="lg:hidden">
-            <p className="font-heading text-xl font-semibold tracking-tight">
-              {active?.name ?? "No business"}
-            </p>
-            {categoryLine ? (
-              <p className="mt-1 text-sm text-muted-foreground">{categoryLine}</p>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline" className="rounded-lg">
-            <Link href="/app/automation">Automation</Link>
-          </Button>
-          <Button asChild className="rounded-lg">
-            <Link href="/app/content/new">Create content</Link>
-          </Button>
-        </div>
-      </header>
-
-      <section className="jacita-enter jacita-enter-delay-1 pt-1">
-        <h1 className="font-heading text-[1.5rem] font-semibold tracking-tight text-foreground sm:text-[1.65rem]">
-          {firstName ? `${firstName}, ` : ""}
-          {automationOn ? "AI is managing marketing." : "Automation is waiting."}
-        </h1>
-        <p className="mt-1.5 text-[15px] text-muted-foreground">
-          Command centre for {businessLabel} — organic social automation only.
-        </p>
-      </section>
-
-      {setupProgress && !setupProgress.completed ? (
-        <SetupChecklist progress={setupProgress} />
-      ) : null}
-
-      {/* Automation status — primary */}
-      <section className="jacita-panel jacita-enter jacita-enter-delay-1 rounded-2xl p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="jacita-label">Automation</p>
-            <p className="mt-2 font-heading text-2xl font-semibold tracking-tight">
-              {settings?.paused
-                ? "PAUSED"
-                : automationOn
-                  ? `${(settings?.mode || "approval").toUpperCase()} ACTIVE`
-                  : "OFF"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {settings?.paused
-                ? "New automated actions are stopped until you resume."
-                : automationOn
-                  ? "AI is currently managing your social media."
-                  : "Turn on Approval or Autopilot to start the marketing loop."}
-            </p>
-          </div>
-          <Button asChild>
-            <Link
-              href={
-                settings?.setup_completed_at
-                  ? "/app/automation"
-                  : "/app/automation/setup"
-              }
-            >
-              {automationOn ? "Manage" : "Set up automation"}
-            </Link>
-          </Button>
-        </div>
-
-        <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div>
-            <dt className="text-xs text-muted-foreground">Next post</dt>
-            <dd className="mt-1 truncate text-sm font-medium">
-              {nextPost?.title || nextPost?.hook || "—"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Next platform</dt>
-            <dd className="mt-1 text-sm font-medium capitalize">
-              {nextPost?.platforms[0] || "—"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Scheduled</dt>
-            <dd className="mt-1 font-heading text-lg font-semibold">
-              {counts.scheduled}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Published (7d)</dt>
-            <dd className="mt-1 font-heading text-lg font-semibold">
-              {counts.publishedWeek}
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="jacita-enter jacita-enter-delay-2 space-y-2">
-        <h2 className="font-heading text-lg font-semibold">AI is working on</h2>
-        <p className="text-[15px] text-foreground/90">{workingOn}</p>
-        {settings?.current_state ? (
-          <p className="text-xs capitalize text-muted-foreground">
-            State: {settings.paused ? "paused" : settings.current_state}
+    <div className="overview jacita-enter">
+      <header className="overview-heading">
+        <div>
+          <p className="eyebrow">
+            <span className="signal-dot" /> Your marketing workspace
           </p>
-        ) : null}
+          <h1>
+            {user?.full_name
+              ? `${user.full_name.split(" ")[0]}, here’s the overview.`
+              : "Your weekly overview."}
+          </h1>
+          <p>
+            A clearer view of what’s ready, what’s working and what needs you.
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/app/content/new">
+            <Sparkles size={15} /> Create content
+          </Link>
+        </Button>
+      </header>
+      <div className="overview-toolbar">
+        <span>
+          <Building2 size={14} /> {active?.name ?? "No business selected"}
+          <span className="scope-label">Business view</span>
+        </span>
+        <PeriodFilter days={days} />
+      </div>
+      {error && (
+        <div role="alert" className="workspace-error">
+          <CircleAlert size={18} />
+          <div>
+            <strong>Workspace data could not be loaded</strong>
+            <p>
+              Totals are unavailable. Your saved records have not changed.{" "}
+              <Link href={`/app?range=${days}d`}>Try again</Link>
+            </p>
+          </div>
+        </div>
+      )}
+      {!active && (
+        <div className="glass-panel p-6">
+          <h2>Select a business to begin</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Open Businesses to select a client or complete onboarding.
+          </p>
+          <Link className="text-primary" href="/app/businesses">
+            Open businesses →
+          </Link>
+        </div>
+      )}
+      <section className="summary-grid" aria-label="Workspace summary">
+        {stats.map((stat, i) => (
+          <Link
+            key={stat.label}
+            href={stat.href}
+            className={`glass-panel summary-card summary-${i}`}
+          >
+            <div className="summary-label">
+              <span>{stat.label}</span>
+              <stat.icon size={16} />
+            </div>
+            <strong>
+              {stat.value === undefined
+                ? "—"
+                : stat.value.toLocaleString("en-GB")}
+            </strong>
+            <div className="summary-note">
+              {stat.note}
+              <ArrowUpRight size={13} />
+            </div>
+          </Link>
+        ))}
       </section>
-
-      <div className="jacita-enter jacita-enter-delay-2 grid gap-10 lg:grid-cols-2">
-        <section className="space-y-4">
-          <div className="flex items-end justify-between gap-3">
-            <h2 className="font-heading text-lg font-semibold">Upcoming</h2>
-            <Link
-              href="/app/calendar"
-              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-            >
-              Calendar
-              <ArrowRight className="size-3.5" />
+      <div className="overview-grid">
+        <section
+          className="glass-panel review-panel"
+          id="weekly-review"
+          aria-labelledby="review-title"
+        >
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Your next moves</p>
+              <h2 id="review-title">
+                Weekly review{" "}
+                <span className="count-badge">
+                  {data?.attentionCount ?? "—"}
+                </span>
+              </h2>
+            </div>
+            <FileCheck2 size={18} className="text-primary" />
+          </div>
+          <p className="panel-subtitle">Move the right work forward.</p>
+          {data?.queue.length ? (
+            <ul className="review-list">
+              {data.queue.map((item) => (
+                <li key={item.id}>
+                  <span
+                    className={`review-marker ${item.urgent ? "urgent" : ""}`}
+                  />
+                  <div>
+                    <span className="review-business">{active?.name}</span>
+                    <h3>{item.title}</h3>
+                    <p>{item.reason}</p>
+                    <Link href={item.href}>
+                      {item.action}
+                      <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="small-empty">
+              <ShieldCheck size={26} />
+              <strong>
+                {error ? "Review queue unavailable" : "You’re up to date"}
+              </strong>
+              <p>
+                {error
+                  ? "Please retry loading your records."
+                  : "No pending reviews or setup issues for this business."}
+              </p>
+            </div>
+          )}
+          <Link href="/app/content?status=review" className="panel-bottom-link">
+            Open approval queue <ArrowUpRight size={14} />
+          </Link>
+        </section>
+        {data ? (
+          <PerformancePanel
+            metrics={data.metrics}
+            from={data.from}
+            to={data.to}
+            days={days}
+            timezone={data.timezone}
+          />
+        ) : (
+          <section className="glass-panel performance-panel chart-empty">
+            <Radio size={28} />
+            <h2>Performance unavailable</h2>
+            <p>
+              {error
+                ? "Retry loading your business records."
+                : "Select a business to see its performance."}
+            </p>
+            <Link href="/app/analytics">Open analytics →</Link>
+          </section>
+        )}
+        <section
+          className="glass-panel pipeline-panel"
+          aria-labelledby="pipeline-title"
+        >
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">From idea to audience</p>
+              <h2 id="pipeline-title">Content pipeline</h2>
+            </div>
+            <Link href="/app/content" className="text-link">
+              Content Studio <ArrowUpRight size={14} />
             </Link>
           </div>
-          {upcoming.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No upcoming posts. Start automation to fill the pipeline.
-            </p>
-          ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              {upcoming.slice(0, 4).map((item, index) => (
-                <li key={item.id}>
-                  <Link
-                    href={`/app/content/${item.id}`}
-                    className="group flex gap-3 overflow-hidden rounded-xl bg-card p-2 transition-transform hover:-translate-y-0.5"
-                    style={{
-                      boxShadow:
-                        "0 1px 2px rgba(15,18,24,0.04), 0 8px 24px rgba(15,18,24,0.04)",
-                    }}
-                  >
-                    <div
-                      className={cn(
-                        "relative size-16 shrink-0 rounded-lg bg-gradient-to-br",
-                        thumbTone(index)
-                      )}
-                    >
-                      <div className="absolute inset-1">
-                        <PlatformIcons platforms={item.platforms} />
-                      </div>
-                    </div>
-                    <div className="min-w-0 flex-1 py-0.5">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={item.status} className="scale-90" />
-                        <span className="text-[11px] capitalize text-muted-foreground">
-                          {contentTypeLabel(item.content_type)}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-sm font-medium">
-                        {item.hook || item.title || "Untitled"}
-                      </p>
-                      <p className="font-mono text-[11px] text-muted-foreground">
-                        {item.scheduled_at
-                          ? format(
-                              new Date(item.scheduled_at),
-                              "EEE d MMM · HH:mm"
-                            )
-                          : "Awaiting schedule"}
-                      </p>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="pipeline-stages">
+            {pipeline.map((stage, i) => (
+              <Link
+                key={stage.label}
+                href={`/app/content?status=${stage.status}`}
+                className={`pipeline-stage ${stage.tone}`}
+              >
+                <span>
+                  <i />
+                  {stage.label}
+                  {i < 5 && <ArrowRight size={12} />}
+                </span>
+                <strong>{stage.count ?? "—"}</strong>
+                <small>{stage.detail}</small>
+              </Link>
+            ))}
+          </div>
+          <div className="pipeline-footnote">
+            <Layers3 size={13} />
+            <span>
+              Briefs live within drafts. Published content and failed items have
+              separate records.
+            </span>
+            <Link href="/app/content?status=published">
+              Published <ArrowUpRight size={12} />
+            </Link>
+            {(data?.totals.failed ?? 0) > 0 && (
+              <Link href="/app/content?status=failed">
+                {data?.totals.failed} failed
+              </Link>
+            )}
+          </div>
+          <p className="metric-caveat">
+            A scheduled post stays scheduled until publishing starts. Only a
+            provider confirmation counts as a confirmed publication; simulations
+            are excluded.
+          </p>
         </section>
-
-        <section className="space-y-4">
-          <h2 className="font-heading text-lg font-semibold">AI learned</h2>
-          {learned.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Insights appear after automation analyses performance for this
-              business.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border/70 border-y border-border/70">
-              {learned.map((text) => (
-                <li key={text} className="py-3 text-[15px] leading-relaxed">
-                  {text}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <h2 className="pt-4 font-heading text-lg font-semibold">
-            Needs your attention
-          </h2>
-          {attention.length === 0 && counts.review === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nothing needs you right now.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {attention.map((item) => (
+        <OutcomesPanel
+          metrics={data?.metrics ?? []}
+          from={data?.from ?? ""}
+          to={data?.to ?? ""}
+          campaigns={data?.campaigns ?? []}
+        />
+        <section className="glass-panel health-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Keep things moving</p>
+              <h2>Business health</h2>
+            </div>
+            <Radio size={18} className="text-primary" />
+          </div>
+          <div className="health-rows">
+            <Link href="/app/social">
+              <span>Account connections</span>
+              <strong>
+                {data
+                  ? `${data.accounts.filter((a) => a.connection_status === "connected" && !["attention", "reauth_required"].includes(a.health_status)).length} healthy / ${data.accounts.length} accounts`
+                  : "Unavailable"}
+                <ArrowUpRight size={13} />
+              </strong>
+            </Link>
+            <Link href="/app/automation">
+              <span>Automation</span>
+              <strong className="capitalize">
+                {data ? automationState : "Unavailable"}
+                <ArrowUpRight size={13} />
+              </strong>
+            </Link>
+            <Link href="/app/campaigns">
+              <span>Upcoming campaigns</span>
+              <strong>
+                {data
+                  ? data.campaigns.filter(
+                      (c) => c.start_date && c.start_date > data.to,
+                    ).length
+                  : "—"}
+                <ArrowUpRight size={13} />
+              </strong>
+            </Link>
+            <Link href="/app/automation">
+              <span>Publishing holds</span>
+              <strong>
+                {data?.heldCount ?? "Tracking unavailable"}
+                <ArrowUpRight size={13} />
+              </strong>
+            </Link>
+          </div>
+          <p className="metric-caveat">
+            {automation?.state_message ||
+              "Approval rules and publishing holds are managed in Automation."}
+          </p>
+          <Link
+            href="/app/settings?section=brand"
+            className="panel-bottom-link"
+          >
+            Brand rules & approved facts <ArrowUpRight size={14} />
+          </Link>
+        </section>
+        <section className="glass-panel cost-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Know the running cost</p>
+              <h2>Operating costs</h2>
+            </div>
+            <Wallet size={18} className="text-muted-foreground" />
+          </div>
+          <div className="cost-total">
+            <strong>
+              {data && data.costs.count > data.costs.unsettled
+                ? money(data.costs.calculated)
+                : "—"}
+            </strong>
+            <span>Usage-based AI estimate · {days} days</span>
+          </div>
+          <div className="attribution-row">
+            <span>
+              Pending usage ·{" "}
+              {data?.costs.available ? data.costs.unsettled : "—"} calls
+            </span>
+            <strong>
+              {data?.costs.count ? money(data.costs.estimated) : "—"}
+            </strong>
+          </div>
+          <p className="metric-caveat">
+            {data && !data.costs.available
+              ? "Cost tracking is unavailable in the configured backend. No operating-cost total can be verified."
+              : data?.costs.count
+                ? "Calculated from reported tokens and the app’s price table. Provider invoices, media production and other operating costs are not tracked here."
+                : "No AI usage recorded in this period. Provider invoices and other operating costs are not tracked."}
+          </p>
+          <Link href="/app/settings?section=ai" className="panel-bottom-link">
+            Usage & spending limits <ArrowUpRight size={14} />
+          </Link>
+        </section>
+        <section className="glass-panel activity-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">The work behind the scenes</p>
+              <h2>Recent automation activity</h2>
+            </div>
+            <Link href="/app/automation" className="text-link">
+              Open control centre <ArrowUpRight size={14} />
+            </Link>
+          </div>
+          {data?.activity.length ? (
+            <ul className="activity-list">
+              {data.activity.map((item) => (
                 <li key={item.id}>
-                  <Link
-                    href={`/app/content/${item.id}`}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm hover:bg-muted/40"
-                  >
-                    <span className="truncate">
-                      {item.title || item.hook || "Content"}
-                    </span>
-                    <span className="shrink-0 capitalize text-xs text-amber-700">
-                      {item.status}
-                    </span>
-                  </Link>
+                  <span
+                    className={
+                      item.severity === "error"
+                        ? "review-marker urgent"
+                        : "signal-dot"
+                    }
+                  />
+                  <p>{item.message}</p>
+                  <time dateTime={item.created_at}>
+                    {new Date(item.created_at).toLocaleString("en-GB", {
+                      timeZone: data.timezone,
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </time>
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="panel-subtitle">
+              {error
+                ? "Activity is unavailable. Please retry."
+                : "No automation activity recorded yet. Configure approval rules in Automation to get started."}
+            </p>
           )}
         </section>
       </div>
-
-      <section className="jacita-enter jacita-enter-delay-3 space-y-3">
-        <div className="flex items-end justify-between">
-          <h2 className="font-heading text-lg font-semibold">
-            Today&apos;s activity
-          </h2>
-          <Link
-            href="/app/automation"
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Full feed
-          </Link>
-        </div>
-        {activity.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Automation activity for {businessLabel} will show here.
-          </p>
-        ) : (
-          <ul className="border-t border-border/70">
-            {activity.map((row) => (
-              <li
-                key={row.id}
-                className="flex gap-3 border-b border-border/70 py-3 text-sm"
-              >
-                <span
-                  className={cn(
-                    "mt-1.5 size-1.5 shrink-0 rounded-full",
-                    row.severity === "error"
-                      ? "bg-red-500"
-                      : row.severity === "warning"
-                        ? "bg-amber-500"
-                        : row.severity === "success"
-                          ? "bg-emerald-500"
-                          : "bg-muted-foreground/40"
-                  )}
-                />
-                <div>
-                  <p>{row.message}</p>
-                  <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                    {format(new Date(row.created_at), "HH:mm")} · {row.event_type}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <footer className="overview-footer">
+        <span>
+          <ShieldCheck size={13} /> Private workspace ·{" "}
+          {active?.name ?? "JACITA"}
+        </span>
+        <span>
+          Stored business records · {data?.timezone ?? "Timezone unavailable"}
+        </span>
+      </footer>
     </div>
   );
 }
