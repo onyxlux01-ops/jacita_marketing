@@ -39,6 +39,11 @@ body { color:var(--ink); background:var(--surface); }
 .eye:after { background:var(--navy-deep); }
 .mobile-nav { border-color:var(--line); }
 .mobile-nav a { display:flex;align-items:center;min-height:44px; }
+@media(max-width:980px) {
+  .mobile-nav { position:absolute;top:70px;right:18px;background:var(--surface);box-shadow:var(--shadow-card);border:1px solid var(--line);border-radius:15px;padding:15px;display:grid;gap:14px;min-width:190px; }
+  .mobile-nav[hidden] { display:none; }
+  .mobile-nav a { font-size:13px;font-weight:650; }
+}
 
 /* Light storytelling sections */
 .hero { background:radial-gradient(circle at 50% 77%,#f6f3ea 0,#fff 54%);border-color:var(--line); }

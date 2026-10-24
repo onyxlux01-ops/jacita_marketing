@@ -1,6 +1,6 @@
 # JACITA Marketing design system
 
-Version 1, 24 October 2026. Applied to the private landing page concept in `dist/design-system.css`.
+Version 1, 24 October 2026. Applied to the public landing page concept in `public/landing-concept/design-system.css`.
 
 ## Brand direction
 
@@ -63,7 +63,7 @@ Normal text is designed for at least 4.5:1 and large text for at least 3:1. Revi
 
 ## Usage rule
 
-Use the semantic tokens in `dist/design-system.css` for new UI. Keep direct platform colours only inside their respective social logo tiles. When a real dashboard is integrated, move these tokens into the shared application theme and verify each component's final rendered contrast, keyboard order, reflow and mobile layout.
+Use the semantic tokens in `public/landing-concept/design-system.css` for new UI. Keep direct platform colours only inside their respective social logo tiles. When a real dashboard is integrated, move these tokens into the shared application theme and verify each component's final rendered contrast, keyboard order, reflow and mobile layout.
 
 ## Reference standards
 
