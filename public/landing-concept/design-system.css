@@ -31,7 +31,7 @@ body { color:var(--ink); background:var(--surface); }
 /* Navigation and primary actions */
 .navlinks { color:var(--text); }
 .navlinks a { display:inline-flex;align-items:center;min-height:44px; }
-.signin { color:var(--muted); }
+.signin { display:inline-flex;align-items:center;min-height:44px;color:var(--muted); }
 .pill.dark { background:var(--navy);border-color:var(--navy);color:#fff; }
 .pill.light { background:#fff;border-color:var(--line);color:var(--navy); }
 .pill.mint { background:var(--gold-bright);border-color:var(--gold-bright);color:var(--navy-deep); }
