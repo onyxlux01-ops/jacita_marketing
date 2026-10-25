@@ -156,13 +156,10 @@
   display: block;
   position: relative;
   width: 28px;
-  height: 8px;
+  height: 28px;
   border-radius: 50%;
   background: #fff;
   overflow: hidden;
-  transition:
-    height 0.25s ease,
-    border-radius 0.25s ease;
 }
 .page :global(.eye:after) {
   content: "";
@@ -173,50 +170,16 @@
   height: 8px;
   border-radius: 50%;
   background: #071018;
-  opacity: 0;
+  opacity: 1;
   transform: translate(
     calc(-50% + var(--px, 0px)),
     calc(-50% + var(--py, 0px))
   );
-  transition:
-    opacity 0.16s,
-    transform 0.12s ease-out;
-}
-.page :global(.eye-cta:hover .eye),
-.page :global(.eye-cta:focus-visible .eye) {
-  height: 28px;
-  border-radius: 50%;
-}
-.page :global(.eye-cta:hover .eye:after),
-.page :global(.eye-cta:focus-visible .eye:after) {
-  opacity: 1;
+  transition: transform 0.12s ease-out;
 }
 .page :global(.eye-cta:focus-visible) {
   outline: 3px solid #2ac2a8;
   outline-offset: 3px;
-}
-@media (hover: none) {
-  .page :global(.eye-cta .eye) {
-    height: 28px;
-    border-radius: 50%;
-  }
-  .page :global(.eye-cta .eye:after) {
-    opacity: 1;
-  }
-  .page :global(.eye-cta .eye) {
-    animation: eye-blink 5.4s infinite;
-  }
-}
-@keyframes eye-blink {
-  0%,
-  42%,
-  46%,
-  100% {
-    height: 28px;
-  }
-  44% {
-    height: 4px;
-  }
 }
 .page :global(.hero) {
   position: relative;
