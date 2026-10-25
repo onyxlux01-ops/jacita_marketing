@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { HeroCaptions } from "@/components/homepage/hero-captions";
 import { HeroOrbits } from "@/components/homepage/hero-orbits";
@@ -15,14 +16,14 @@ export default function LoginPage() {
   return (
     <main className="homepage-hero relative flex min-h-svh flex-col overflow-hidden bg-white text-neutral-950">
       <header className="relative z-20 px-7 pt-7 sm:px-10">
-        <a href="/" aria-label="JACITA Marketing home" className="inline-flex flex-col leading-none">
+        <Link href="/" aria-label="JACITA Marketing home" className="inline-flex flex-col leading-none">
           <span className="text-[15px] font-semibold tracking-[0.22em] text-neutral-950">
             JACITA
           </span>
           <span className="mt-1 text-[10px] font-medium tracking-[0.38em] text-neutral-400">
             MARKETING
           </span>
-        </a>
+        </Link>
       </header>
 
       <HeroVisual />
@@ -48,9 +49,9 @@ export default function LoginPage() {
             <LoginForm />
           </Suspense>
         </div>
-        <a href="/" className="mt-6 text-sm text-neutral-600 underline-offset-4 hover:underline">
+        <Link href="/" className="mt-6 text-sm text-neutral-600 underline-offset-4 hover:underline">
           Back to JACITA Marketing
-        </a>
+        </Link>
       </div>
     </main>
   );
