@@ -5,7 +5,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type PointerEvent,
   type ReactNode,
   type CSSProperties,
   type MouseEvent,
@@ -26,33 +25,8 @@ export function EyeLink({
   href: string;
   children: ReactNode;
 }) {
-  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", true);
-  function aim(event: PointerEvent<HTMLAnchorElement>) {
-    if (reducedMotion || event.pointerType !== "mouse") return;
-    event.currentTarget.querySelectorAll<HTMLElement>(".eye").forEach((eye) => {
-      const rect = eye.getBoundingClientRect();
-      const dx = event.clientX - rect.left - rect.width / 2;
-      const dy = event.clientY - rect.top - rect.height / 2;
-      const angle = Math.atan2(dy, dx);
-      const distance = Math.min(6, Math.hypot(dx, dy) * 0.12);
-      eye.style.setProperty("--px", Math.cos(angle) * distance + "px");
-      eye.style.setProperty("--py", Math.sin(angle) * distance + "px");
-    });
-  }
   return (
-    <a
-      className="pill dark eye-cta"
-      href={href}
-      onPointerMove={aim}
-      onPointerLeave={(event) =>
-        event.currentTarget
-          .querySelectorAll<HTMLElement>(".eye")
-          .forEach((eye) => {
-            eye.style.setProperty("--px", "0px");
-            eye.style.setProperty("--py", "0px");
-          })
-      }
-    >
+    <a className="pill dark eye-cta" href={href}>
       {children}
       <span className="eye-pair" aria-hidden="true">
         <span className="eye" />
