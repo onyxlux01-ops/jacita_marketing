@@ -169,23 +169,16 @@ export function ClientsSection() {
     <section className="clients" id="clients">
       <div className="container">
         <div className="section-head">
-          <div className="eyebrow">THE BRANDS BEHIND THE WORK</div>
+          <div className="eyebrow">ENDORSED BUSINESSES</div>
           <h2>
-            Good work looks different
+            Different businesses.
             <br />
-            for every business.
+            One commitment to growth.
           </h2>
-          <p>
-            This is where approved client identities will live. The names below
-            only demonstrate the intended motion and layout.
-          </p>
+          <p>Meet the businesses in the JACITA network.</p>
         </div>
         <div className="logo-stage">
           <ClientLogos />
-          <p className="demo-disclosure">
-            Design placeholders. No client logos or endorsements are shown in
-            this preview.
-          </p>
         </div>
       </div>
     </section>

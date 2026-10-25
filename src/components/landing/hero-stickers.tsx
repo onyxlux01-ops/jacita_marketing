@@ -1,17 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { useMediaQuery } from "./use-media-query";
 
-const stickers = [
-  ["ig", "◎", "Instagram"],
-  ["fb", "f", "Facebook"],
-  ["tk", "♪", "TikTok"],
-  ["cv", "Canva", "Creative tools"],
-  ["th", "@", "Threads"],
-  ["mt", "∞", "Meta"],
-] as const;
-const placement = [0.09, 0.79, 0.87, 0.16, 0.24, 0.77];
+import stickers from "./platform-logos.json";
+import silhouettes from "./logo-silhouettes.json";
 
 export function HeroStickers() {
   const wallRef = useRef<HTMLDivElement>(null);
@@ -30,9 +23,13 @@ export function HeroStickers() {
         y: 0,
         vx: 0,
         vy: 0,
-        angle: (i % 2 ? -1 : 1) * (8 + i * 3),
+        angle: (i % 2 ? -1 : 1) * (6 + (i % 4) * 2),
         spin: (i % 2 ? -1 : 1) * 0.13,
-        size: el.offsetWidth,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        band: 0,
+        bandHeight: 0,
+        shape: silhouettes[stickers[i].platform as keyof typeof silhouettes],
         drag: false,
         active: false,
       }),
@@ -56,37 +53,31 @@ export function HeroStickers() {
           "deg)";
       });
     }
-    function fit(initial = false) {
-      const next = wall!.getBoundingClientRect();
-      const oldWidth = Math.max(1, bounds.width);
-      const oldHeight = Math.max(1, bounds.height);
-      bounds = next;
+    function fit() {
+      bounds = wall!.getBoundingClientRect();
+      const bandSize = bounds.width < 651 ? 4 : bounds.width < 1000 ? 5 : 10;
       bodies.forEach((body) => {
-        body.size = body.el.offsetWidth;
-        body.x = initial
-          ? Math.max(
-              5,
-              Math.min(
-                next.width - body.size - 5,
-                placement[body.i] * next.width - body.size / 2,
-              ),
-            )
-          : Math.max(
-              0,
-              Math.min(
-                next.width - body.size,
-                (body.x * next.width) / oldWidth,
-              ),
-            );
-        body.y = initial
-          ? -body.size - 15
-          : Math.max(
-              -body.size,
-              Math.min(
-                next.height - body.size,
-                (body.y * next.height) / oldHeight,
-              ),
-            );
+        body.width = body.el.offsetWidth;
+        body.height = body.el.offsetHeight;
+        body.band = Math.floor(body.i / bandSize);
+        body.bandHeight = bounds.height / Math.ceil(bodies.length / bandSize);
+        const group = bodies.slice(
+          body.band * bandSize,
+          (body.band + 1) * bandSize,
+        );
+        const gap = Math.max(
+          8,
+          (bounds.width - group.reduce((n, o) => n + o.el.offsetWidth, 0)) /
+            (group.length + 1),
+        );
+        const before = group
+          .slice(0, body.i % bandSize)
+          .reduce((n, o) => n + o.el.offsetWidth + gap, 0);
+        body.x = Math.max(
+          5,
+          Math.min(bounds.width - body.width - 5, gap + before),
+        );
+        body.y = body.band * body.bandHeight + 4;
         body.el.style.left = "0";
         body.el.style.top = "0";
       });
@@ -95,10 +86,10 @@ export function HeroStickers() {
     function tick(now: number) {
       frame = 0;
       if (!visible || document.hidden) return;
-      const dt = Math.min(8, (now - last) / 16.67);
+      const dt = Math.min(2, (now - last) / 16.67);
       last = now;
       bodies.forEach((body) => {
-        if (!body.active && now - began > 350 + body.i * 460) {
+        if (!body.active && now - began > 350 + body.i * 220) {
           body.active = true;
           body.vy = 0.4;
           body.vx = (body.i % 2 ? -1 : 1) * (0.45 + body.i * 0.1);
@@ -110,8 +101,8 @@ export function HeroStickers() {
         body.y += body.vy * dt;
         body.angle += body.spin * dt;
         body.spin *= Math.pow(0.995, dt);
-        const maxX = bounds.width - body.size;
-        const maxY = bounds.height - body.size - 9;
+        const maxX = bounds.width - body.width;
+        const maxY = (body.band + 1) * body.bandHeight - body.height - 9;
         if (body.x < 4) {
           body.x = 4;
           body.vx = Math.abs(body.vx) * 0.68;
@@ -133,15 +124,46 @@ export function HeroStickers() {
         for (let j = i + 1; j < bodies.length; j++) {
           const a = bodies[i],
             b = bodies[j];
-          if (!a.active || !b.active) continue;
-          const dx = b.x - a.x,
-            dy = b.y - a.y;
-          const limit = (a.size + b.size) * 0.48,
-            distance = Math.hypot(dx, dy) || 0.001;
-          if (distance >= limit) continue;
-          const nx = dx / distance,
-            ny = dy / distance,
-            push = (limit - distance) * 0.51;
+          if (!a.active || !b.active || a.band !== b.band) continue;
+          const ac = { x: a.x + a.width / 2, y: a.y + a.height / 2 };
+          const bc = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+          if (
+            Math.hypot(ac.x - bc.x, ac.y - bc.y) >
+            (Math.hypot(a.width, a.height) + Math.hypot(b.width, b.height)) / 2
+          )
+            continue;
+          const dots = (body: (typeof bodies)[number]) => {
+            const t = (body.angle * Math.PI) / 180,
+              c = Math.cos(t),
+              sn = Math.sin(t);
+            return body.shape.points.map(([u, v]) => {
+              const x = (u - 0.5) * body.width,
+                y = (v - 0.5) * body.height;
+              return {
+                x: body.x + body.width / 2 + x * c - y * sn,
+                y: body.y + body.height / 2 + x * sn + y * c,
+              };
+            });
+          };
+          const radius = a.shape.radius * a.width + b.shape.radius * b.width;
+          let hit: { nx: number; ny: number; depth: number } | null = null;
+          const aDots = dots(a),
+            bDots = dots(b);
+          for (const ap of aDots)
+            for (const bp of bDots) {
+              const dx = bp.x - ap.x,
+                dy = bp.y - ap.y,
+                distance = Math.hypot(dx, dy);
+              if (distance < radius && (!hit || radius - distance > hit.depth))
+                hit = {
+                  nx: distance ? dx / distance : 1,
+                  ny: distance ? dy / distance : 0,
+                  depth: radius - distance,
+                };
+            }
+          if (!hit) continue;
+          const { nx, ny, depth } = hit,
+            push = depth / (a.drag || b.drag ? 1 : 2);
           if (!a.drag) {
             a.x -= nx * push;
             a.y -= ny * push;
@@ -163,6 +185,28 @@ export function HeroStickers() {
             }
           }
         }
+      bodies.forEach((body) => {
+        const t = (body.angle * Math.PI) / 180;
+        const rx =
+          (Math.abs(Math.cos(t)) * body.width +
+            Math.abs(Math.sin(t)) * body.height) /
+          2;
+        const ry =
+          (Math.abs(Math.sin(t)) * body.width +
+            Math.abs(Math.cos(t)) * body.height) /
+          2;
+        body.x = Math.max(
+          rx - body.width / 2 + 4,
+          Math.min(bounds.width - rx - body.width / 2 - 4, body.x),
+        );
+        body.y = Math.max(
+          body.band * body.bandHeight + ry - body.height / 2 + 4,
+          Math.min(
+            (body.band + 1) * body.bandHeight - ry - body.height / 2 - 9,
+            body.y,
+          ),
+        );
+      });
       paint();
       frame = requestAnimationFrame(tick);
     }
@@ -197,14 +241,14 @@ export function HeroStickers() {
         const x = Math.max(
           0,
           Math.min(
-            bounds.width - body.size,
+            bounds.width - body.width,
             event.clientX - rect.left - offsetX,
           ),
         );
         const y = Math.max(
-          0,
+          body.band * body.bandHeight,
           Math.min(
-            bounds.height - body.size,
+            (body.band + 1) * body.bandHeight - body.height,
             event.clientY - rect.top - offsetY,
           ),
         );
@@ -233,16 +277,20 @@ export function HeroStickers() {
       body.el.addEventListener("pointermove", move);
       body.el.addEventListener("pointerup", release);
       body.el.addEventListener("pointercancel", release);
+      body.el.addEventListener("lostpointercapture", release);
       cleanups.push(() => {
         body.el.removeEventListener("pointerdown", down);
         body.el.removeEventListener("pointermove", move);
         body.el.removeEventListener("pointerup", release);
         body.el.removeEventListener("pointercancel", release);
+        body.el.removeEventListener("lostpointercapture", release);
         body.el.classList.remove("is-dragging");
-        body.el.removeAttribute("style");
+        body.el.style.removeProperty("left");
+        body.el.style.removeProperty("top");
+        body.el.style.removeProperty("transform");
       });
     });
-    fit(true);
+    fit();
     const intersection = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
       resume();
@@ -263,10 +311,26 @@ export function HeroStickers() {
   }, [reducedMotion]);
   return (
     <div className="sticker-wall" ref={wallRef} aria-hidden="true">
-      {stickers.map(([variant, symbol, label]) => (
-        <div key={variant} className={"float-tile " + variant}>
-          <span>{symbol}</span>
-          <small>{label}</small>
+      {stickers.map((logo) => (
+        <div
+          key={logo.platform}
+          className="float-tile social-logo"
+          style={
+            {
+              "--logo-width": logo.width + "px",
+              "--logo-ratio": logo.ratio,
+              "--rest-x": logo.x,
+              "--rest-y": logo.y,
+            } as CSSProperties
+          }
+        >
+          <svg viewBox={logo.viewBox} role="img" aria-label={logo.label}>
+            <image
+              href={"/landing/social-logos/" + logo.platform + ".png"}
+              width="2000"
+              height="2000"
+            />
+          </svg>
         </div>
       ))}
     </div>

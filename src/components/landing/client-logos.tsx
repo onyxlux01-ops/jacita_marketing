@@ -1,11 +1,38 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useMediaQuery } from "./use-media-query";
 
-const sets = [
-  ["STUDIO 01", "BRAND 02", "SHOP 03", "TEAM 04"],
-  ["CLIENT 05", "ATELIER 06", "MAKER 07", "SPACE 08"],
+const businesses = [
+  {
+    file: "jacita-travels.png",
+    name: "JACITA Travels",
+    width: 2000,
+    height: 2000,
+    variant: "wide-logo",
+  },
+  {
+    file: "pcl.png",
+    name: "PCL",
+    width: 1080,
+    height: 1350,
+    variant: "pcl-logo",
+  },
+  {
+    file: "jacita-logistics.png",
+    name: "JACITA Logistics",
+    width: 2000,
+    height: 2000,
+    variant: "wide-logo",
+  },
+  {
+    file: "all-hair-beauty.jpeg",
+    name: "All Hair & Beauty Salon",
+    width: 1254,
+    height: 1254,
+    variant: "salon-logo",
+  },
 ];
 
 export function ClientLogos() {
@@ -22,22 +49,29 @@ export function ClientLogos() {
     observer.observe(grid);
     const timer = window.setInterval(() => {
       if (visible && !document.hidden && !grid.matches(":hover"))
-        setIndex((value) => (value + 1) % sets.length);
-    }, 4200);
+        setIndex((value) => value + 1);
+    }, 5200);
     return () => {
       observer.disconnect();
       clearInterval(timer);
     };
   }, [reducedMotion]);
   return (
-    <div
-      className="logo-grid"
-      aria-label="Illustrative logo layout"
-      ref={gridRef}
-    >
-      {sets[index].map((label) => (
-        <div className="logo-cell" key={label}>
-          <span className="logo-mark">{label}</span>
+    <div className="logo-grid" aria-label="Endorsed businesses" ref={gridRef}>
+      {businesses.map((business, order) => (
+        <div className="logo-cell" key={business.file}>
+          <div className="business-logo-frame">
+            <Image
+              key={index}
+              src={"/landing/business-logos/" + business.file}
+              alt={business.name}
+              width={business.width}
+              height={business.height}
+              sizes="(max-width:650px) 40vw, 260px"
+              className={"logo-mark business-logo " + business.variant}
+              style={{ animationDelay: order * 0.12 + "s" }}
+            />
+          </div>
         </div>
       ))}
     </div>
