@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LandingHero } from "@/components/landing/hero";
+import { HomepageEyeTracker } from "@/components/landing/homepage-eye-tracker";
 import { TrafficTunnel } from "@/components/landing/traffic-tunnel";
 import { WorkflowStack } from "@/components/landing/workflow-stack";
 import { OutcomeWord } from "@/components/landing/outcome-word";
@@ -25,6 +26,7 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <main className={styles.page}>
+      <HomepageEyeTracker />
       <LandingHero />
       <ServicesSection />
       <TrafficTunnel />
