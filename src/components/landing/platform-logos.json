@@ -1,0 +1,92 @@
+[
+  {
+    "platform": "instagram",
+    "width": 78,
+    "ratio": "1510/1509",
+    "x": "5%",
+    "y": "12%",
+    "viewBox": "245 291 1510 1509",
+    "label": "instagram"
+  },
+  {
+    "platform": "facebook",
+    "width": 78,
+    "ratio": "1446/1446",
+    "x": "24%",
+    "y": "12%",
+    "viewBox": "277 277 1446 1446",
+    "label": "facebook"
+  },
+  {
+    "platform": "tiktok",
+    "width": 88,
+    "ratio": "1641/1588",
+    "x": "43%",
+    "y": "12%",
+    "viewBox": "160 200 1641 1588",
+    "label": "tiktok"
+  },
+  {
+    "platform": "whatsapp",
+    "width": 112,
+    "ratio": "1712/1105",
+    "x": "62%",
+    "y": "12%",
+    "viewBox": "144 448 1712 1105",
+    "label": "whatsapp"
+  },
+  {
+    "platform": "linkedin",
+    "width": 154,
+    "ratio": "1656/404",
+    "x": "81%",
+    "y": "12%",
+    "viewBox": "172 701 1656 404",
+    "label": "linkedin"
+  },
+  {
+    "platform": "meta",
+    "width": 156,
+    "ratio": "1048/212",
+    "x": "5%",
+    "y": "77%",
+    "viewBox": "476 816 1048 212",
+    "label": "meta"
+  },
+  {
+    "platform": "pinterest",
+    "width": 76,
+    "ratio": "1230/1230",
+    "x": "24%",
+    "y": "77%",
+    "viewBox": "385 385 1230 1230",
+    "label": "pinterest"
+  },
+  {
+    "platform": "google-business",
+    "width": 76,
+    "ratio": "1694/1481",
+    "x": "43%",
+    "y": "77%",
+    "viewBox": "153 392 1694 1481",
+    "label": "google-business"
+  },
+  {
+    "platform": "google",
+    "width": 78,
+    "ratio": "1398/1428",
+    "x": "62%",
+    "y": "77%",
+    "viewBox": "301 286 1398 1428",
+    "label": "google"
+  },
+  {
+    "platform": "x",
+    "width": 78,
+    "ratio": "1544/1396",
+    "x": "81%",
+    "y": "77%",
+    "viewBox": "228 302 1544 1396",
+    "label": "X"
+  }
+]

@@ -2929,3 +2929,400 @@
   filter: none;
   opacity: 1;
 }
+
+/* Latest approved landing reference (version 19). */
+/* Artwork keeps its native silhouette; SVG viewBox excludes only transparent margins. */
+.page :global(.hero .sticker-wall .social-logo),
+.page :global(.hero.physics-ready .sticker-wall .social-logo) {
+  width: var(--logo-width);
+  height: auto;
+  aspect-ratio: var(--logo-ratio);
+  left: var(--rest-x);
+  top: var(--rest-y);
+  right: auto;
+  bottom: auto;
+  opacity: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: visible;
+}
+.page :global(.social-logo svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+@media (max-width: 650px) {
+  .page :global(.hero .sticker-wall .social-logo),
+  .page :global(.hero.physics-ready .sticker-wall .social-logo) {
+    width: calc(var(--logo-width) * 0.68);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page :global(.hero .sticker-wall .social-logo) {
+    animation: none;
+    transform: none;
+  }
+}
+
+/* Dedicated play area keeps artwork clear of copy, including while dragging. */
+.page :global(.hero .hero-content) {
+  padding-bottom: 12px;
+}
+.page :global(.hero .sticker-wall) {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 190px;
+  margin: 0 auto;
+  max-width: 1440px;
+  contain: layout paint;
+}
+.page :global(.hero .sticker-wall .social-logo) {
+  animation: none;
+  left: calc(var(--rest-x) * 0.9);
+  top: var(--rest-y);
+}
+@media (max-width: 650px) {
+  .page :global(.hero .sticker-wall) {
+    height: 292px;
+    margin-top: 12px;
+  }
+  .page :global(.hero .sticker-wall .social-logo),
+  .page :global(.hero.physics-ready .sticker-wall .social-logo) {
+    width: calc(var(--logo-width) * 0.62);
+  }
+}
+.page :global(.hero:not(.physics-ready) .sticker-wall) {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 20px;
+  height: auto;
+  min-height: 190px;
+}
+.page :global(.hero:not(.physics-ready) .sticker-wall .social-logo) {
+  position: relative;
+  inset: auto;
+  transform: none;
+  flex-shrink: 0;
+}
+/* Reference-inspired typing headline: fixed opening, typed/deleted outcome. */
+.page :global(.hero-type) {
+  display: none;
+}
+.page :global(.typing-active .hero-static) {
+  display: none;
+}
+.page :global(.typing-active .hero-type) {
+  display: block;
+  white-space: nowrap;
+}
+.page :global(.hero .typing-heading.typing-active) {
+  min-height: 1.15em;
+  margin-bottom: 15px;
+}
+.page :global(.typed-word) {
+  color: var(--gold-ink);
+}
+.page :global(.typing-cursor) {
+  display: inline-block;
+  width: 0.18em;
+  color: var(--gold-ink);
+  font-weight: 400;
+  animation: typing-blink 0.9s step-end infinite;
+}
+@keyframes typing-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (max-width: 650px) {
+  .page :global(.typing-active .hero-type) {
+    white-space: normal;
+  }
+  .page :global(.typing-active .typed-word) {
+    display: block;
+    white-space: nowrap;
+  }
+  .page :global(.hero .typing-heading.typing-active) {
+    min-height: 2.2em;
+    font-size: clamp(36px, 10vw, 58px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page :global(.typing-cursor) {
+    animation: none;
+  }
+}
+
+/* Circular reveal overlay navigation, available at every viewport size. */
+.page :global(.navlinks) {
+  display: none;
+}
+.page :global(.menu) {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  color: var(--navy);
+}
+.page :global(.site-menu) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: white;
+  overflow: hidden;
+}
+.page :global(.site-menu::backdrop) {
+  background: transparent;
+}
+.page :global(.overlay-surface) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 22px max(24px, calc((100vw - 1190px) / 2));
+  background: var(--navy-deep);
+  clip-path: circle(150% at calc(100% - 52px) 45px);
+  animation: overlay-reveal 0.7s cubic-bezier(0.76, 0, 0.24, 1) both;
+}
+@keyframes overlay-reveal {
+  from {
+    clip-path: circle(0 at calc(100% - 52px) 45px);
+  }
+  to {
+    clip-path: circle(150% at calc(100% - 52px) 45px);
+  }
+}
+.page :global(.site-menu.closing .overlay-surface) {
+  animation: overlay-conceal 0.5s cubic-bezier(0.76, 0, 0.24, 1) both;
+}
+@keyframes overlay-conceal {
+  from {
+    clip-path: circle(150% at calc(100% - 52px) 45px);
+  }
+  to {
+    clip-path: circle(0 at calc(100% - 52px) 45px);
+  }
+}
+.page :global(.overlay-header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid #ffffff26;
+  border-radius: 999px;
+  padding: 12px 15px 12px 24px;
+  background: #ffffff08;
+  min-height: 65px;
+}
+.page :global(.overlay-brand) {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.page :global(.overlay-brand small) {
+  color: var(--gold-bright);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  margin-left: 9px;
+}
+.page :global(.overlay-close) {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: white;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  padding: 0;
+}
+.page :global(.close-symbol) {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: #ffffff12;
+  border: 1px solid #ffffff30;
+  border-radius: 50%;
+  font-size: 27px;
+  font-weight: 300;
+}
+.page :global(.overlay-links) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 35px 24px;
+}
+.page :global(.overlay-links a) {
+  display: flex;
+  align-items: baseline;
+  gap: 17px;
+  width: fit-content;
+  opacity: 0;
+  transform: translateY(35px);
+  animation: overlay-link-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1)
+    calc(0.25s + var(--order) * 0.085s) forwards;
+}
+.page :global(.overlay-links a span) {
+  font-size: clamp(40px, 6vw, 80px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 1.12;
+  transition:
+    color 0.2s,
+    translate 0.2s;
+}
+.page :global(.overlay-links a small) {
+  color: var(--gold-bright);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+.page :global(.overlay-links a:hover span) {
+  color: var(--gold-bright);
+  translate: 8px 0;
+}
+@keyframes overlay-link-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.page :global(.overlay-footer) {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #ffffff26;
+  color: var(--on-dark);
+  padding: 23px 24px 8px;
+  font-size: 12px;
+}
+.page :global(.site-menu.closing .overlay-links),
+.page :global(.site-menu.closing .overlay-footer) {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+@media (max-width: 650px) {
+  .page :global(.overlay-surface) {
+    padding: 16px 18px max(22px, env(safe-area-inset-bottom));
+  }
+  .page :global(.overlay-header) {
+    padding-left: 18px;
+  }
+  .page :global(.overlay-brand small) {
+    display: block;
+    margin: 4px 0 0;
+  }
+  .page :global(.overlay-links) {
+    padding: 25px 6px;
+    gap: 15px;
+  }
+  .page :global(.overlay-links a span) {
+    font-size: clamp(36px, 10vw, 54px);
+  }
+  .page :global(.overlay-footer) {
+    padding: 20px 6px 0;
+    flex-direction: column;
+    font-size: 11px;
+    gap: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page :global(.overlay-surface) {
+    animation: none;
+    clip-path: none;
+  }
+  .page :global(.overlay-links a) {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .page :global(.overlay-links a:hover span) {
+    translate: 0;
+  }
+}
+
+/* Uploaded business identities retain their original colours and proportions. */
+.page :global(.clients .logo-stage) {
+  padding: 24px;
+}
+.page :global(.clients .logo-cell) {
+  min-height: 170px;
+  overflow: hidden;
+}
+.page :global(.business-logo-frame) {
+  width: 100%;
+  height: 145px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 14px;
+}
+.page :global(.business-logo) {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+.page :global(.wide-logo) {
+  width: 100%;
+  height: 95px;
+  object-fit: cover;
+}
+.page :global(.pcl-logo) {
+  width: 82%;
+  height: 120px;
+  object-fit: cover;
+}
+.page :global(.salon-logo) {
+  width: 145px;
+  height: 145px;
+}
+@media (max-width: 650px) {
+  .page :global(.clients .logo-stage) {
+    padding: 14px;
+  }
+  .page :global(.clients .logo-grid) {
+    gap: 10px;
+  }
+  .page :global(.clients .logo-cell) {
+    min-height: 120px;
+    border-radius: 14px;
+  }
+  .page :global(.business-logo-frame) {
+    height: 110px;
+  }
+  .page :global(.wide-logo) {
+    height: 65px;
+  }
+  .page :global(.pcl-logo) {
+    width: 90%;
+    height: 85px;
+  }
+  .page :global(.salon-logo) {
+    width: 105px;
+    height: 105px;
+  }
+}
+
+.page :global(.brand) {
+  background-image: url("/landing/jacita-logo.png");
+}

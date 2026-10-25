@@ -1,5 +1,6 @@
 import { EyeLink, LandingHeader } from "./landing-navigation";
 import { HeroStickers } from "./hero-stickers";
+import { HeroHeading } from "./hero-heading";
 
 export function LandingHero() {
   return (
@@ -7,20 +8,13 @@ export function LandingHero() {
       <div className="orbit"></div>
       <div className="orbit two"></div>
       <div className="orbit-glow"></div>
-      <HeroStickers />
       <LandingHeader />
       <div className="hero-content">
         <div className="eyebrow">
           <span className="eyebrow-dot"></span> Personal marketing,
           intelligently managed
         </div>
-        <h1>
-          Be discovered.
-          <br />
-          Be remembered.
-          <br />
-          <em>Be booked.</em>
-        </h1>
+        <HeroHeading />
         <p className="hero-copy">
           We learn your business, shape content around your voice, and manage
           the weekly work that keeps you in front of the people who matter.
@@ -36,6 +30,7 @@ export function LandingHero() {
           account connections.
         </p>
       </div>
+      <HeroStickers />
     </section>
   );
 }
