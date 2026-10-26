@@ -19,39 +19,51 @@
   },
   {
     "platform": "tiktok",
-    "width": 88,
-    "ratio": "1641/1588",
+    "width": 76,
+    "ratio": "674/761",
     "x": "43%",
     "y": "12%",
-    "viewBox": "160 200 1641 1588",
-    "label": "tiktok"
+    "viewBox": "303 221 674 761",
+    "label": "tiktok",
+    "whiteKey": true,
+    "src": "/landing/social-logos/tiktok-icon.jpg",
+    "imageSize": 1280
   },
   {
     "platform": "whatsapp",
-    "width": 112,
-    "ratio": "1712/1105",
+    "width": 80,
+    "ratio": "934/938",
     "x": "62%",
     "y": "12%",
-    "viewBox": "144 448 1712 1105",
-    "label": "whatsapp"
+    "viewBox": "173 171 934 938",
+    "label": "whatsapp",
+    "whiteKey": true,
+    "src": "/landing/social-logos/whatsapp-icon.jpg",
+    "imageSize": 1280
   },
   {
     "platform": "linkedin",
-    "width": 154,
-    "ratio": "1656/404",
+    "width": 78,
+    "ratio": "733/734",
     "x": "81%",
     "y": "12%",
-    "viewBox": "172 701 1656 404",
-    "label": "linkedin"
+    "viewBox": "265 271 733 734",
+    "label": "linkedin",
+    "rounded": true,
+    "src": "/landing/social-logos/linkedin-icon.jpg",
+    "imageSize": 1280
   },
   {
     "platform": "meta",
-    "width": 156,
-    "ratio": "1048/212",
+    "width": 96,
+    "ratio": "542/361",
     "x": "5%",
     "y": "77%",
-    "viewBox": "476 816 1048 212",
-    "label": "meta"
+    "viewBox": "369 437 542 361",
+    "label": "meta",
+    "whiteKey": true,
+    "src": "/landing/social-logos/meta-icon.jpg",
+    "imageSize": 1280
   },
   {
     "platform": "pinterest",
