@@ -16,6 +16,8 @@
 }
 .page {
   margin: 0;
+  /* Thrown hero logos may leave the viewport sideways without widening the page. */
+  overflow-x: clip;
   background: #fff;
   color: var(--ink);
   font-family:
@@ -191,7 +193,7 @@
 .page :global(.hero:after) {
   content: "";
   position: absolute;
-  inset: auto -20% 0;
+  inset: auto 0 0;
   height: 210px;
   background: linear-gradient(transparent, #fff);
   pointer-events: none;
@@ -2582,10 +2584,13 @@
 .page :global(.footer) {
   border-color: #344d70;
 }
+.page :global(.footer) {
+  font-size: 13px;
+}
 .page :global(.footer-links a) {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 44px;
 }
 @media (max-width: 650px) {
   .page :global(.container) {
@@ -3186,4 +3191,16 @@
 .page :global(.hero) { isolation: isolate; background: #c2dfff; }
 .page :global(.hero .sticker-wall) {
   background: linear-gradient(0deg, #ffffffe6, #ffffff55 60%, #ffffff00);
+}
+
+/* Phone floors: readable workflow copy, and 16px fields so iOS does not zoom on focus. */
+@media (max-width: 650px) {
+  .page :global(.stack-card p) { font-size: 13px; line-height: 1.45; }
+  .page :global(.stack-card .counter) { font-size: 11px; }
+  .page :global(.stack-step .stage-kicker) { font-size: 10px; }
+  .page :global(.stack-hint) { font-size: 11px; }
+  .page :global(.field input),
+  .page :global(.field textarea) { font-size: 16px; }
+  .page :global(.form-note) { font-size: 12px; }
+  .page :global(.faq-contact) { min-height: 44px; }
 }

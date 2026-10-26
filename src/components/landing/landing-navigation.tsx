@@ -101,7 +101,14 @@ export function LandingHeader() {
             aria-expanded={open}
             onClick={() => setOpen(true)}
           >
-            ☰
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                d="M3 6h14M3 10h14M3 14h14"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
         </div>
       </header>
