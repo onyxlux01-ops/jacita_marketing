@@ -37,23 +37,19 @@ export function MarketingFlow() {
               aria-hidden="true"
               key={replay}
             >
+              <path className="route-base" d="M196 170 L265 170"></path>
+              <path className="route-base" d="M461 170 L530 170"></path>
+              <path className="route-base" d="M726 170 L795 170"></path>
               <path
-                className="route-base"
-                d="M275 170 C455 170 505 56 742 56"
+                className="route-base route-return"
+                d="M893 206 C893 300 98 300 98 206"
               ></path>
-              <path className="route-base" d="M275 170 L742 170"></path>
-              <path
-                className="route-base"
-                d="M275 170 C455 170 505 284 742 284"
-              ></path>
+              <path className="route-pulse" d="M196 170 L265 170"></path>
+              <path className="route-pulse" d="M461 170 L530 170"></path>
+              <path className="route-pulse" d="M726 170 L795 170"></path>
               <path
                 className="route-pulse"
-                d="M275 170 C455 170 505 56 742 56"
-              ></path>
-              <path className="route-pulse" d="M275 170 L742 170"></path>
-              <path
-                className="route-pulse"
-                d="M275 170 C455 170 505 284 742 284"
+                d="M893 206 C893 300 98 300 98 206"
               ></path>
               <circle className="signal-dot" r="6" opacity="0">
                 <set
@@ -63,38 +59,10 @@ export function MarketingFlow() {
                   fill="freeze"
                 ></set>
                 <animateMotion
-                  dur="3.2s"
+                  dur="7s"
                   begin="0s"
                   repeatCount="indefinite"
-                  path="M275 170 C455 170 505 56 742 56"
-                ></animateMotion>
-              </circle>
-              <circle className="signal-dot" r="6" opacity="0">
-                <set
-                  attributeName="opacity"
-                  to="1"
-                  begin=".8s"
-                  fill="freeze"
-                ></set>
-                <animateMotion
-                  dur="3.2s"
-                  begin=".8s"
-                  repeatCount="indefinite"
-                  path="M275 170 L742 170"
-                ></animateMotion>
-              </circle>
-              <circle className="signal-dot" r="6" opacity="0">
-                <set
-                  attributeName="opacity"
-                  to="1"
-                  begin="1.6s"
-                  fill="freeze"
-                ></set>
-                <animateMotion
-                  dur="3.2s"
-                  begin="1.6s"
-                  repeatCount="indefinite"
-                  path="M275 170 C455 170 505 284 742 284"
+                  path="M98 170 L893 170 L893 206 C893 300 98 300 98 206 L98 170"
                 ></animateMotion>
               </circle>
             </svg>
