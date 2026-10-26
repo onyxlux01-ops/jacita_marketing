@@ -26,7 +26,7 @@ export function LandingHero() {
           </a>
         </div>
         <p className="hero-note">
-          Drag the logos to play. Channels shown are illustrative, not live
+          Grab a logo, throw it around, or tap the floor. Channels shown are illustrative, not live
           account connections.
         </p>
       </div>

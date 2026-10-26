@@ -3289,3 +3289,23 @@
 .page :global(.brand) {
   background-image: url("/landing/jacita-logo.png");
 }
+
+/* Shared gravity playground; only logos capture touch gestures. */
+.page :global(.hero.physics-ready .sticker-wall) {
+  height: 200px;
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+.page :global(.floor-ripple) {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border: 1px solid rgba(10, 32, 62, 0.18);
+  border-radius: 50%;
+  background: rgba(10, 32, 62, 0.035);
+  pointer-events: none;
+  opacity: 0;
+}
+@media (max-width: 650px) {
+  .page :global(.hero.physics-ready .sticker-wall) { height: 230px; }
+}
