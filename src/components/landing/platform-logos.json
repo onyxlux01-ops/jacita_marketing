@@ -1,0 +1,104 @@
+[
+  {
+    "platform": "instagram",
+    "width": 78,
+    "ratio": "1510/1509",
+    "x": "5%",
+    "y": "12%",
+    "viewBox": "245 291 1510 1509",
+    "label": "instagram"
+  },
+  {
+    "platform": "facebook",
+    "width": 78,
+    "ratio": "1446/1446",
+    "x": "24%",
+    "y": "12%",
+    "viewBox": "277 277 1446 1446",
+    "label": "facebook"
+  },
+  {
+    "platform": "tiktok",
+    "width": 76,
+    "ratio": "674/761",
+    "x": "43%",
+    "y": "12%",
+    "viewBox": "303 221 674 761",
+    "label": "tiktok",
+    "whiteKey": true,
+    "src": "/landing/social-logos/tiktok-icon.jpg",
+    "imageSize": 1280
+  },
+  {
+    "platform": "whatsapp",
+    "width": 80,
+    "ratio": "934/938",
+    "x": "62%",
+    "y": "12%",
+    "viewBox": "173 171 934 938",
+    "label": "whatsapp",
+    "whiteKey": true,
+    "src": "/landing/social-logos/whatsapp-icon.jpg",
+    "imageSize": 1280
+  },
+  {
+    "platform": "linkedin",
+    "width": 78,
+    "ratio": "733/734",
+    "x": "81%",
+    "y": "12%",
+    "viewBox": "265 271 733 734",
+    "label": "linkedin",
+    "rounded": true,
+    "src": "/landing/social-logos/linkedin-icon.jpg",
+    "imageSize": 1280
+  },
+  {
+    "platform": "meta",
+    "width": 96,
+    "ratio": "542/361",
+    "x": "5%",
+    "y": "77%",
+    "viewBox": "369 437 542 361",
+    "label": "meta",
+    "whiteKey": true,
+    "src": "/landing/social-logos/meta-icon.jpg",
+    "imageSize": 1280
+  },
+  {
+    "platform": "pinterest",
+    "width": 76,
+    "ratio": "1230/1230",
+    "x": "24%",
+    "y": "77%",
+    "viewBox": "385 385 1230 1230",
+    "label": "pinterest"
+  },
+  {
+    "platform": "google-business",
+    "width": 76,
+    "ratio": "1694/1481",
+    "x": "43%",
+    "y": "77%",
+    "viewBox": "153 392 1694 1481",
+    "label": "google-business"
+  },
+  {
+    "platform": "google",
+    "width": 78,
+    "ratio": "1398/1428",
+    "x": "62%",
+    "y": "77%",
+    "viewBox": "301 286 1398 1428",
+    "label": "google"
+  },
+  {
+    "platform": "x",
+    "width": 78,
+    "ratio": "1544/1396",
+    "x": "81%",
+    "y": "77%",
+    "viewBox": "228 302 1544 1396",
+    "label": "X"
+  }
+]

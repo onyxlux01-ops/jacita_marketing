@@ -2,16 +2,15 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useState } from "react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
 import { safeNextPath } from "@/lib/safe-next"
 import { createClient } from "@/lib/supabase/client"
 
-function LoginForm() {
+export function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") ?? "/app"
@@ -58,7 +57,7 @@ function LoginForm() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@studio.com"
+            placeholder="you@business.com"
             className="h-10"
           />
         </div>
@@ -100,27 +99,5 @@ function LoginForm() {
         <p>Access is by invitation only. Ask your business owner for an invite.</p>
       </div>
     </>
-  )
-}
-
-export default function LoginPage() {
-  return (
-    <div className="space-y-8">
-      <div className="space-y-2 text-center">
-        <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
-          Welcome back
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          Sign in to Jacita
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Manage campaigns, content, and brand presence in one place.
-        </p>
-      </div>
-
-      <Suspense fallback={<Skeleton className="h-64 w-full rounded-2xl" />}>
-        <LoginForm />
-      </Suspense>
-    </div>
   )
 }
