@@ -21,6 +21,8 @@ import {
 import { getOverview } from "@/lib/dashboard/overview";
 import { createClient } from "@/lib/supabase/server";
 import { PerformancePanel } from "@/components/dashboard/performance-panel";
+import { WorkflowStatusMap } from "@/components/dashboard/workflow-status-map";
+import { workflowStatus } from "@/lib/dashboard/workflow-status";
 import { OutcomesPanel } from "@/components/dashboard/outcomes-panel";
 import { PeriodFilter } from "@/components/dashboard/period-filter";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,22 @@ export default async function DashboardPage({
     : automation?.enabled && automation.mode !== "off"
       ? `${automation.mode} enabled`
       : "Off";
+  const workflow = data
+    ? workflowStatus({
+        brandLogo: data.brandLogo,
+        accounts: { total: data.accounts.length, issues: data.accountIssues },
+        automation: data.settings
+          ? {
+              enabled: Boolean(data.settings.enabled),
+              mode: data.settings.mode,
+              paused: Boolean(data.settings.paused),
+            }
+          : null,
+        totals: data.totals,
+        heldCount: data.heldCount,
+        publications: data.publications,
+      })
+    : null;
   const stats = [
     {
       label: "Active businesses",
@@ -195,6 +213,7 @@ export default async function DashboardPage({
           </Link>
         </div>
       )}
+      {workflow && <WorkflowStatusMap status={workflow} />}
       <section className="summary-grid" aria-label="Workspace summary">
         {stats.map((stat, i) => (
           <Link

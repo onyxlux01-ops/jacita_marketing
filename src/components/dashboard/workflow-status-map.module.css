@@ -1,0 +1,256 @@
+/* Dark hub map in the navy and gold palette of the landing page. */
+.panel {
+  padding: 24px;
+  border-radius: 24px;
+  background: #06142e;
+  color: #d9e6fa;
+  box-shadow: 0 16px 42px rgba(8, 31, 65, 0.2);
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.header h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+.kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.21em;
+  text-transform: uppercase;
+  color: #d5b773;
+}
+.summary {
+  padding: 8px 14px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.summary.ok {
+  color: #6ee7a0;
+  border-color: rgba(62, 210, 122, 0.4);
+  background: rgba(62, 210, 122, 0.12);
+}
+.summary.attention {
+  color: #ff8a8a;
+  border-color: rgba(255, 92, 92, 0.5);
+  background: rgba(255, 92, 92, 0.12);
+}
+.summary.idle {
+  color: #aab4c5;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.map {
+  position: relative;
+  width: 100%;
+  max-width: 1000px;
+  aspect-ratio: 1000 / 360;
+  margin: 0 auto;
+}
+.wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.wire {
+  fill: none;
+  stroke-width: 2;
+}
+.wire.ok {
+  stroke: rgba(62, 210, 122, 0.7);
+}
+.wire.attention {
+  stroke: rgba(255, 92, 92, 0.75);
+  stroke-dasharray: 6 8;
+}
+.wire.idle {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-dasharray: 4 6;
+}
+.flowDot {
+  fill: #6ee7a0;
+}
+
+.node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  text-decoration: none;
+  transform: translateY(-50%);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.node:hover {
+  border-color: rgba(213, 183, 115, 0.6);
+}
+.node strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #aab4c5;
+}
+.node.ok {
+  border-color: rgba(62, 210, 122, 0.35);
+}
+.node.attention {
+  border-color: rgba(255, 92, 92, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(255, 92, 92, 0.2),
+    0 0 28px rgba(255, 92, 92, 0.25);
+}
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.light {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #6b7588;
+}
+.node.ok .light {
+  background: #3ed27a;
+  box-shadow: 0 0 12px #3ed27a;
+}
+.node.attention .light {
+  background: #ff5c5c;
+  box-shadow: 0 0 14px #ff5c5c;
+}
+
+.brief,
+.accounts,
+.automation {
+  left: 0;
+  width: 30%;
+}
+.brief {
+  top: 16.67%;
+}
+.accounts {
+  top: 50%;
+}
+.automation {
+  top: 83.33%;
+}
+.engine {
+  left: 38%;
+  top: 50%;
+  width: 24%;
+  flex-direction: column;
+  padding: 20px;
+  text-align: center;
+}
+.engine .icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+.engine .text {
+  justify-items: center;
+}
+.engine .light {
+  margin: 12px 0 0;
+}
+.publishing,
+.results {
+  left: 70%;
+  width: 30%;
+}
+.publishing {
+  top: 33.33%;
+}
+.results {
+  top: 66.67%;
+}
+
+@media (max-width: 760px) {
+  .panel {
+    padding: 18px;
+  }
+  .map {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    aspect-ratio: auto;
+  }
+  .wires {
+    display: none;
+  }
+  .node,
+  .brief,
+  .accounts,
+  .automation,
+  .engine,
+  .publishing,
+  .results {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: auto;
+    transform: none;
+  }
+  .engine {
+    flex-direction: row;
+    padding: 16px;
+    text-align: left;
+  }
+  .engine .text {
+    justify-items: start;
+  }
+  .engine .light {
+    margin: 0 0 0 auto;
+  }
+  .engine .icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowDot {
+    display: none;
+  }
+}

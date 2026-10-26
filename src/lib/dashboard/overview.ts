@@ -311,6 +311,8 @@ export async function getOverview(
     accounts: accounts.data ?? [],
     campaigns: campaigns.data ?? [],
     settings: settings.data,
+    brandLogo: Boolean(brand.data?.logo_path),
+    accountIssues: connectionIssues.length,
     activity: activity.data ?? [],
     costs: {
       available: costsAvailable,
