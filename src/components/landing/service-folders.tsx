@@ -84,14 +84,16 @@ export function ServiceFolders() {
   const finePointer = useMediaQuery("(hover: hover) and (pointer: fine)");
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const pointerType = useRef("mouse");
-  const [hovered, setHovered] = useState<number | null>(null);
-  const [focused, setFocused] = useState<number | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
+  // One input owns the reveal, so old keyboard focus cannot pin another card open.
+  const [active, setActive] = useState<{
+    index: number;
+    input: "mouse" | "keyboard" | "touch";
+  } | null>(null);
 
   return (
     <div className={styles.grid}>
       {services.map((service, index) => {
-        const open = reducedMotion || hovered === index || focused === index || selected === index;
+        const open = reducedMotion || active?.index === index;
         return (
           <article
             key={service.title}
@@ -100,11 +102,17 @@ export function ServiceFolders() {
             data-open={open}
             onPointerEnter={(event) => {
               if (finePointer && event.pointerType === "mouse") {
-                setSelected(null);
-                setHovered(index);
+                setActive({ index, input: "mouse" });
               }
             }}
-            onPointerLeave={() => setHovered(null)}
+            onPointerMove={(event) => {
+              if (finePointer && event.pointerType === "mouse" && active?.input !== "mouse") {
+                setActive({ index, input: "mouse" });
+              }
+            }}
+            onPointerLeave={() => {
+              setActive((previous) => previous?.input === "mouse" && previous.index === index ? null : previous);
+            }}
           >
             <div className={styles.artwork} aria-hidden="true">
               <ServiceIllustration index={index} />
@@ -129,24 +137,25 @@ export function ServiceFolders() {
               aria-pressed={open}
               onPointerDown={(event) => {
                 pointerType.current = event.pointerType;
-                if (event.pointerType !== "mouse") {
-                  setHovered(null);
-                  setFocused(null);
-                }
+                if (finePointer && event.pointerType === "mouse") setActive({ index, input: "mouse" });
+                else setActive((previous) => previous?.input === "touch" ? previous : null);
               }}
               onFocus={(event) => {
-                if (event.currentTarget.matches(":focus-visible")) setFocused(index);
+                if (event.currentTarget.matches(":focus-visible")) setActive({ index, input: "keyboard" });
               }}
-              onBlur={() => setFocused(null)}
+              onBlur={() => {
+                setActive((previous) => previous?.input === "keyboard" && previous.index === index ? null : previous);
+              }}
               onClick={(event) => {
-                if (event.detail === 0) setFocused(focused === index ? null : index);
-                else if (!finePointer || pointerType.current !== "mouse") setSelected(selected === index ? null : index);
+                if (event.detail === 0) {
+                  setActive((previous) => previous?.index === index ? null : { index, input: "keyboard" });
+                } else if (!finePointer || pointerType.current !== "mouse") {
+                  setActive((previous) => previous?.index === index ? null : { index, input: "touch" });
+                }
               }}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
-                  setHovered(null);
-                  setFocused(null);
-                  setSelected(null);
+                  setActive(null);
                 }
               }}
             />
