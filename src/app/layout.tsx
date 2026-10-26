@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers";
 import "./globals.css";
+import "@/styles/brand-tokens.css";
 
 const manrope = Manrope({
   subsets: ["latin"],

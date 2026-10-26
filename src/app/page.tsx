@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function HomePage() {
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} brand-scope`}>
       <HomepageEyeTracker />
       <LandingHero />
       <ServicesSection />

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
 
+import shell from "@/components/auth/auth-shell.module.css"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -46,7 +47,7 @@ export function LoginForm() {
     <>
       <form
         onSubmit={onSubmit}
-        className="space-y-5 rounded-2xl border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_-40px_oklch(0.2_0_0_/_0.45)] backdrop-blur-sm"
+        className={`${shell.card} space-y-5`}
       >
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>

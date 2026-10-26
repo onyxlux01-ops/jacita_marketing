@@ -1,16 +1,5 @@
 /* Scoped port of the supplied JACITA concept and brand overrides. */
 
-.page {
-  --ink: #07131e;
-  --muted: #6a7180;
-  --line: #e6e8ec;
-  --blue: #3268ec;
-  --violet: #ad45d7;
-  --black: #020304;
-  --teal: #1e4745;
-  --mint: #2ac2a8;
-  --green: #2abb5d;
-}
 .page :global(*) {
   box-sizing: border-box;
 }
@@ -1992,29 +1981,8 @@
   }
 }
 
-/* JACITA Marketing design system, v1. The logo's navy and gold lead the palette.
-   Component overrides live here so the concept can migrate to reusable UI later. */
-.page {
-  --navy: #081f41;
-  --navy-deep: #06142e;
-  --navy-soft: #102d55;
-  --blue: #244c80;
-  --gold: #b99849;
-  --gold-bright: #d5b773;
-  --gold-ink: #8a681e;
-  --ink: #081f41;
-  --text: #334763;
-  --muted: #536178;
-  --on-dark: #d9e6fa;
-  --surface: #ffffff;
-  --surface-soft: #f8f9fb;
-  --surface-warm: #f8f6f0;
-  --line: #e3e8ee;
-  --radius-card: 24px;
-  --radius-panel: 30px;
-  --shadow-card: 0 16px 42px rgba(8, 31, 65, 0.075);
-  --space-section: clamp(72px, 8vw, 112px);
-}
+/* Component overrides live here so the concept can migrate to reusable UI later.
+   Design tokens are in src/styles/brand-tokens.css. */
 .page {
   color: var(--ink);
   background: var(--surface);

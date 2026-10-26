@@ -1,0 +1,190 @@
+/* Auth pages use the landing page's brand: the cloud backdrop, the logo, the eyebrow and
+   heading treatment, the card and the navy pill button. Tokens come from src/styles/brand-tokens.css. */
+.shell {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.shell::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 210px;
+  background: linear-gradient(transparent, #fff);
+  pointer-events: none;
+}
+
+.topbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: 91px;
+  width: min(1190px, calc(100% - 48px));
+  margin: 0 auto;
+}
+.brand {
+  display: block;
+  width: 244px;
+  height: 68px;
+  background: url("/landing/jacita-logo.png") center / 390px 390px no-repeat;
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: min(40rem, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 72px;
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.21em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+}
+.eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+.title {
+  margin: 20px 0 0;
+  font-size: clamp(48px, 6vw, 86px);
+  font-weight: 700;
+  line-height: 1.055;
+  letter-spacing: -0.065em;
+  color: var(--ink);
+}
+.title em {
+  font-style: normal;
+  background: linear-gradient(105deg, var(--navy) 5%, var(--blue) 50%, var(--gold-ink) 100%);
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.lead {
+  max-width: 580px;
+  margin: 22px auto 0;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+.back {
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.card {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(6px);
+}
+
+/* Restyle the shadcn controls used by the auth forms. */
+.shell [data-slot="label"] {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+.shell [data-slot="input"] {
+  height: 48px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 15px;
+}
+.shell [data-slot="input"]:focus-visible {
+  border-color: var(--gold-ink);
+  box-shadow: 0 0 0 3px rgba(185, 152, 73, 0.25);
+}
+.shell [data-slot="button"] {
+  min-height: 48px;
+  height: auto;
+  padding: 0 22px;
+  border: 1px solid var(--navy);
+  border-radius: 999px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+.shell [data-slot="button"]:hover {
+  background: var(--navy);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(8, 19, 32, 0.13);
+}
+.shell [data-slot="button"]:disabled {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+@media (max-width: 650px) {
+  .topbar {
+    width: calc(100% - 36px);
+    height: 76px;
+  }
+  .brand {
+    width: 177px;
+    height: 58px;
+    background-size: 350px 350px;
+  }
+  .title {
+    font-size: clamp(41px, 11vw, 58px);
+  }
+  .lead {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell [data-slot="button"],
+  .shell [data-slot="button"]:hover {
+    transition: none;
+    transform: none;
+  }
+}

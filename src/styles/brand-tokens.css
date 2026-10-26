@@ -1,0 +1,21 @@
+/* JACITA Marketing design system, v1. The logo's navy and gold lead the palette.
+   Apply .brand-scope to a page root; the landing and auth pages both use it. */
+.brand-scope {
+  --navy: #081f41;
+  --navy-deep: #06142e;
+  --blue: #244c80;
+  --gold: #b99849;
+  --gold-bright: #d5b773;
+  --gold-ink: #8a681e;
+  --ink: #081f41;
+  --text: #334763;
+  --muted: #536178;
+  --on-dark: #d9e6fa;
+  --surface: #ffffff;
+  --surface-soft: #f8f9fb;
+  --surface-warm: #f8f6f0;
+  --line: #e3e8ee;
+  --radius-panel: 30px;
+  --shadow-card: 0 16px 42px rgba(8, 31, 65, 0.075);
+  --space-section: clamp(72px, 8vw, 112px);
+}
