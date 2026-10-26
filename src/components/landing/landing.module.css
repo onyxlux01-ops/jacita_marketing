@@ -196,38 +196,6 @@
   background: linear-gradient(transparent, #fff);
   pointer-events: none;
 }
-.page :global(.orbit) {
-  position: absolute;
-  left: 50%;
-  top: 54%;
-  width: 1180px;
-  height: 495px;
-  border: 1px solid #dfe2e8;
-  border-radius: 50%;
-  transform: translate(-50%, -50%) rotate(-4deg);
-  opacity: 0.65;
-  pointer-events: none;
-}
-.page :global(.orbit.two) {
-  width: 855px;
-  height: 355px;
-  transform: translate(-50%, -50%) rotate(4deg);
-  opacity: 0.4;
-}
-.page :global(.orbit-glow) {
-  position: absolute;
-  left: 50%;
-  top: 56%;
-  width: 800px;
-  height: 380px;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(
-    ellipse,
-    rgba(217, 218, 249, 0.21),
-    transparent 67%
-  );
-  pointer-events: none;
-}
 .page :global(.hero-content) {
   position: relative;
   z-index: 3;
@@ -1704,15 +1672,6 @@
     font-size: 14px;
     line-height: 1.65;
   }
-  .page :global(.orbit) {
-    width: 660px;
-    height: 390px;
-    top: 55%;
-  }
-  .page :global(.orbit.two) {
-    width: 540px;
-    height: 300px;
-  }
   .page :global(.float-tile) {
     height: 55px;
     width: 55px;
@@ -2201,16 +2160,6 @@
 }
 .page :global(.eyebrow-dot) {
   background: var(--gold);
-}
-.page :global(.orbit) {
-  border-color: #dce3ed;
-}
-.page :global(.orbit-glow) {
-  background: radial-gradient(
-    ellipse,
-    rgba(185, 152, 73, 0.13),
-    transparent 67%
-  );
 }
 .page :global(.hero-note) {
   color: var(--muted);
@@ -3229,3 +3178,11 @@
 @media (max-width: 650px) {
   .page :global(.hero.physics-ready .sticker-wall) { height: 230px; }
 }
+
+/* The cloud scene is behind every interactive hero layer. */
+.page :global(.hero) { isolation: isolate; background: #c2dfff; }
+.page :global(.hero .sticker-wall) {
+  background: linear-gradient(0deg, #ffffffe6, #ffffff55 60%, #ffffff00);
+}
+
+.page :global(.hero .hero-note) { color: var(--navy); }

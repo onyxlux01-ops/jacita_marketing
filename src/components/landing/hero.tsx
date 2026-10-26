@@ -1,13 +1,12 @@
 import { EyeLink, LandingHeader } from "./landing-navigation";
 import { HeroStickers } from "./hero-stickers";
 import { HeroHeading } from "./hero-heading";
+import { HeroCloudBackground } from "./hero-cloud-background";
 
 export function LandingHero() {
   return (
     <section className="hero" id="top">
-      <div className="orbit"></div>
-      <div className="orbit two"></div>
-      <div className="orbit-glow"></div>
+      <HeroCloudBackground />
       <LandingHeader />
       <div className="hero-content">
         <div className="eyebrow">
