@@ -24,7 +24,7 @@ sizes.forEach(logo => { const [w, h] = logo.ratio.split("/").map(Number); logo.r
 const tiles = sizes.map(logo => element(logo.width, logo.width / logo.ratio));
 const wall = new Events();
 Object.assign(wall, { clientWidth: 1200, clientHeight: 200,
-  closest: () => ({ classList: classes() }), querySelectorAll: () => tiles,
+  closest: () => ({ classList: classes(), getBoundingClientRect: () => ({ top: -400 }) }), querySelectorAll: () => tiles,
   getBoundingClientRect: () => ({ left: 0, top: 0 }), appendChild() {} });
 const host = new Events(), document = new Events();
 let rippleCount = 0;
@@ -71,6 +71,13 @@ wall.emit("pointermove", pointer(tiles[0], 200, 40)); step(20);
 assert.ok(bodies()[0].position.x < 300, "grab joint follows pointer");
 wall.emit("pointercancel", pointer(tiles[0], 200, 40));
 assert.equal(engine.world.constraints.length, 0, "cancellation releases grab");
+wall.emit("pointerdown", pointer(tiles[0], bodies()[0].position.x, bodies()[0].position.y));
+wall.emit("pointermove", pointer(tiles[0], 200, -300)); step(90);
+assert.ok(bodies()[0].position.y < 0, "logo can be dragged above the strip over the hero");
+wall.emit("pointermove", pointer(tiles[0], 200, -2000)); step(90);
+assert.ok(bodies()[0].bounds.min.y > -402, "hero top is a ceiling; logos never leave the hero");
+wall.emit("pointerup", pointer(tiles[0], 200, -2000)); step(900);
+assert.ok(bodies()[0].bounds.max.y < 201, "released logo falls back to the floor");
 wall.clientWidth = 390; wall.clientHeight = 230;
 tiles.forEach((el, i) => { el.offsetWidth = sizes[i].width * 0.62; el.offsetHeight = el.offsetWidth / sizes[i].ratio; });
 observers[1].callback(); step(1200);

@@ -8,12 +8,18 @@ export function startLogoPile(wall: HTMLElement) {
   engine.gravity.y = 1;
   const tiles = Array.from(wall.querySelectorAll<HTMLElement>(".social-logo"));
   let width = wall.clientWidth, height = wall.clientHeight;
+  // Logos may leave the strip and fly over the hero copy; the hero's top edge is the ceiling.
+  const measureCeiling = () => {
+    const heroTop = hero.getBoundingClientRect?.().top;
+    return heroTop === undefined ? -1000 : Math.min(0, heroTop - wall.getBoundingClientRect().top);
+  };
+  let ceiling = measureCeiling();
   const items = tiles.map((el, i) => {
     const w = el.offsetWidth, h = el.offsetHeight;
     const columns = width < 650 ? 4 : 10;
     const body = Bodies.rectangle(
       width * 0.18 + (i % columns + 0.5) * width * 0.64 / columns,
-      -h - Math.floor(i / columns) * 100,
+      Math.max(ceiling + h, -h - Math.floor(i / columns) * 100),
       w, h,
       { chamfer: { radius: Math.min(12, h / 4) }, restitution: 0.42,
         friction: 0.55, frictionAir: 0.018, angle: (i % 3 - 1) * 0.18 },
@@ -25,12 +31,14 @@ export function startLogoPile(wall: HTMLElement) {
   let boundaries: Body[] = [];
   function fit() {
     const oldWidth = width;
-    width = wall.clientWidth; height = wall.clientHeight;
+    width = wall.clientWidth; height = wall.clientHeight; ceiling = measureCeiling();
     Composite.remove(engine.world, boundaries);
+    const sideHeight = height - ceiling + 200, sideY = (ceiling + height) / 2;
     boundaries = [
       Bodies.rectangle(width / 2, height + 20, width + 160, 60, { isStatic: true }),
-      Bodies.rectangle(-30, height / 2 - 500, 60, height + 1200, { isStatic: true }),
-      Bodies.rectangle(width + 30, height / 2 - 500, 60, height + 1200, { isStatic: true }),
+      Bodies.rectangle(width / 2, ceiling - 30, width + 160, 60, { isStatic: true }),
+      Bodies.rectangle(-30, sideY, 60, sideHeight, { isStatic: true }),
+      Bodies.rectangle(width + 30, sideY, 60, sideHeight, { isStatic: true }),
     ];
     Composite.add(engine.world, boundaries);
     items.forEach(item => {
@@ -40,7 +48,7 @@ export function startLogoPile(wall: HTMLElement) {
       const radius = Math.hypot(w, h) / 2;
       Body.setPosition(item.body, {
         x: Math.max(radius, Math.min(width - radius, item.body.position.x * width / oldWidth)),
-        y: Math.min(height - radius, item.body.position.y),
+        y: Math.max(ceiling + radius, Math.min(height - radius, item.body.position.y)),
       });
       Sleeping.set(item.body, false);
     });
@@ -72,7 +80,7 @@ export function startLogoPile(wall: HTMLElement) {
       frame = requestAnimationFrame(tick);
     }
   }
-  let grab: { id: number; el: HTMLElement; joint: Constraint } | null = null;
+  let grab: { id: number; el: HTMLElement; joint: Constraint; radius: number } | null = null;
   let tap: { id: number; x: number; y: number } | null = null;
   const local = (event: PointerEvent) => {
     const rect = wall.getBoundingClientRect();
@@ -97,7 +105,7 @@ export function startLogoPile(wall: HTMLElement) {
       pointB: { x: point.x - item.body.position.x, y: point.y - item.body.position.y },
       stiffness: 0.18, damping: 0.12, length: 0 });
     Composite.add(engine.world, joint);
-    grab = { id: event.pointerId, el: item.el, joint };
+    grab = { id: event.pointerId, el: item.el, joint, radius: Math.hypot(item.w, item.h) / 2 };
     item.el.setPointerCapture(event.pointerId);
     item.el.classList.add("is-dragging");
     resume();
@@ -106,7 +114,7 @@ export function startLogoPile(wall: HTMLElement) {
     if (tap?.id === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) tap = null;
     if (grab?.id !== event.pointerId) return;
     const point = local(event);
-    grab.joint.pointA = { x: Math.max(0, Math.min(width, point.x)), y: Math.max(0, Math.min(height, point.y)) };
+    grab.joint.pointA = { x: Math.max(0, Math.min(width, point.x)), y: Math.max(ceiling + grab.radius, Math.min(height, point.y)) };
     Sleeping.set(grab.joint.bodyB!, false);
   }
   const ripple = document.createElement("div");

@@ -3164,6 +3164,10 @@
   height: 200px;
   pointer-events: auto;
   touch-action: pan-y;
+  /* Logos may fly across the hero, in front of the copy; the hero clips them. */
+  contain: none;
+  overflow: visible;
+  z-index: 4;
 }
 .page :global(.floor-ripple) {
   position: absolute;
