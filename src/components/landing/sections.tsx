@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { ClientLogos } from "./client-logos";
 import { PreviewEnquiryForm } from "./preview-enquiry-form";
+import { ServiceFolders } from "./service-folders";
 
 export function ServicesSection() {
   return (
@@ -18,38 +19,7 @@ export function ServicesSection() {
             together, while keeping your business&apos;s voice at the centre.
           </p>
         </div>
-        <div className="service-grid">
-          <article className="service">
-            <div className="service-icon" aria-hidden="true">
-              ✦
-            </div>
-            <h3>Know your business</h3>
-            <p>
-              We begin with your services, audience, brand language, approved
-              offers and what success means to you.
-            </p>
-          </article>
-          <article className="service">
-            <div className="service-icon" aria-hidden="true">
-              ◈
-            </div>
-            <h3>Make content that fits</h3>
-            <p>
-              Ideas, captions, graphics and video are prepared around your real
-              materials, with the right review before publishing.
-            </p>
-          </article>
-          <article className="service">
-            <div className="service-icon" aria-hidden="true">
-              ↗
-            </div>
-            <h3>Learn what moves people</h3>
-            <p>
-              We look at delivery, engagement, enquiries and bookings where
-              reliable data exists, then improve the next round.
-            </p>
-          </article>
-        </div>
+        <ServiceFolders />
       </div>
     </section>
   );
