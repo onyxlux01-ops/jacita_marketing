@@ -1,7 +1,8 @@
 import { Bodies, Body, Composite, Constraint, Engine, Sleeping } from "matter-js";
+import type { LogoPose } from "./logo-glass";
 
 /** DOM-rendered rigid bodies: one shared floor, with no canvas/input interception. */
-export function startLogoPile(wall: HTMLElement) {
+export function startLogoPile(wall: HTMLElement, onPaint?: (poses: LogoPose[]) => void) {
   const hero = wall.closest(".hero")!;
   hero.classList.add("physics-ready");
   const engine = Engine.create({ enableSleeping: true });
@@ -59,6 +60,9 @@ export function startLogoPile(wall: HTMLElement) {
     items.forEach(({ el, body, w, h }) => {
       el.style.transform = `translate3d(${body.position.x - w / 2}px,${body.position.y - h / 2}px,0) rotate(${body.angle}rad)`;
     });
+    onPaint?.(items.map(({ body, w, h }) => ({
+      x: body.position.x, y: body.position.y, angle: body.angle, vx: body.velocity.x, vy: body.velocity.y, w, h,
+    })));
   }
   function tick(now: number) {
     frame = 0;

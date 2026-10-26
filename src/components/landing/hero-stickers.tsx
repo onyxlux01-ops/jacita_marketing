@@ -20,8 +20,14 @@ export function HeroStickers() {
     if (!wall || reducedMotion) return;
     let disposed = false;
     let cleanup: (() => void) | undefined;
-    void import("./logo-pile").then(({ startLogoPile }) => {
-      if (!disposed) cleanup = startLogoPile(wall);
+    void import("./logo-pile").then(async ({ startLogoPile }) => {
+      // The glass renderer is optional: without it the flat artwork keeps the physics.
+      const glass = await import("./logo-glass")
+        .then(({ startLogoGlass }) => (disposed ? null : startLogoGlass(wall)))
+        .catch(() => null);
+      if (disposed) return glass?.dispose();
+      const stopPile = startLogoPile(wall, glass?.sync);
+      cleanup = () => { stopPile(); glass?.dispose(); };
     }).catch(() => { /* The static logo layout remains usable if loading fails. */ });
     return () => { disposed = true; cleanup?.(); };
   }, [reducedMotion]);

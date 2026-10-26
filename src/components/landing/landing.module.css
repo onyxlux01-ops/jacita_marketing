@@ -3149,6 +3149,12 @@
   z-index: 4;
 }
 .page :global(.hero.physics-ready) { overflow: visible; }
+/* Glass solids are drawn on one canvas spanning the hero; the DOM tiles stay as hit targets. */
+.page :global(.logo-glass) {
+  position: absolute;
+  pointer-events: none;
+}
+.page :global(.hero .sticker-wall .social-logo.is-glass svg) { opacity: 0; }
 .page :global(.floor-ripple) {
   position: absolute;
   width: 220px;
