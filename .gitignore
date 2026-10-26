@@ -45,3 +45,6 @@ next-env.d.ts
 .env*
 # Local-only test environment (local Supabase defaults, no secrets)
 !.env.test
+
+# Claude Code personal settings
+.claude/settings.local.json

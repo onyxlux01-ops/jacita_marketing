@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     template: "%s · Jacita",
   },
   description:
-    "Your businesses' marketing runs from here: content, campaigns, and social in one AI workspace.",
+    "Your businesses’ marketing runs from here: content, campaigns, and social in one AI workspace.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
