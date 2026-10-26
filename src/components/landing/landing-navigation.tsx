@@ -92,7 +92,6 @@ export function LandingHeader() {
           <Link className="signin" href="/login">
             Sign in
           </Link>
-          <EyeLink href="#contact">Discuss your business</EyeLink>
           <button
             className="menu"
             type="button"

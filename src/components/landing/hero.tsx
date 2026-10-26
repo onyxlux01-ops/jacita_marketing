@@ -24,10 +24,6 @@ export function LandingHero() {
             See how it works <span aria-hidden="true">↓</span>
           </a>
         </div>
-        <p className="hero-note">
-          Grab a logo, throw it around, or tap the floor. Channels shown are illustrative, not live
-          account connections.
-        </p>
       </div>
       <HeroStickers />
     </section>

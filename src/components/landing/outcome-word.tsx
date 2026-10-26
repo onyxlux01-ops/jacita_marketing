@@ -64,7 +64,6 @@ export function OutcomeWord() {
           and bookings that can be measured.
         </p>
       </div>
-      <span className="scene-label">Explore the outcomes below ↓</span>
     </section>
   );
 }

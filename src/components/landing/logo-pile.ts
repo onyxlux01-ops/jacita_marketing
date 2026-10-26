@@ -8,7 +8,7 @@ export function startLogoPile(wall: HTMLElement) {
   engine.gravity.y = 1;
   const tiles = Array.from(wall.querySelectorAll<HTMLElement>(".social-logo"));
   let width = wall.clientWidth, height = wall.clientHeight;
-  // Logos may leave the strip and fly over the hero copy; the hero's top edge is the ceiling.
+  // Logos spawn at the hero's top edge; once thrown they may leave the screen entirely.
   const measureCeiling = () => {
     const heroTop = hero.getBoundingClientRect?.().top;
     return heroTop === undefined ? -1000 : Math.min(0, heroTop - wall.getBoundingClientRect().top);
@@ -33,10 +33,10 @@ export function startLogoPile(wall: HTMLElement) {
     const oldWidth = width;
     width = wall.clientWidth; height = wall.clientHeight; ceiling = measureCeiling();
     Composite.remove(engine.world, boundaries);
-    const sideHeight = height - ceiling + 200, sideY = (ceiling + height) / 2;
+    // The side walls run far above the strip so thrown logos can fly off screen; there is no top wall.
+    const sideTop = -5000, sideHeight = height - sideTop + 200, sideY = (sideTop + height) / 2;
     boundaries = [
       Bodies.rectangle(width / 2, height + 20, width + 160, 60, { isStatic: true }),
-      Bodies.rectangle(width / 2, ceiling - 30, width + 160, 60, { isStatic: true }),
       Bodies.rectangle(-30, sideY, 60, sideHeight, { isStatic: true }),
       Bodies.rectangle(width + 30, sideY, 60, sideHeight, { isStatic: true }),
     ];
@@ -48,7 +48,7 @@ export function startLogoPile(wall: HTMLElement) {
       const radius = Math.hypot(w, h) / 2;
       Body.setPosition(item.body, {
         x: Math.max(radius, Math.min(width - radius, item.body.position.x * width / oldWidth)),
-        y: Math.max(ceiling + radius, Math.min(height - radius, item.body.position.y)),
+        y: Math.min(height - radius, item.body.position.y),
       });
       Sleeping.set(item.body, false);
     });
@@ -67,7 +67,7 @@ export function startLogoPile(wall: HTMLElement) {
     while (accumulator >= 1000 / 60) {
       items.forEach(({ body }) => {
         const speed = Math.hypot(body.velocity.x, body.velocity.y);
-        if (speed > 22) Body.setVelocity(body, { x: body.velocity.x * 22 / speed, y: body.velocity.y * 22 / speed });
+        if (speed > 34) Body.setVelocity(body, { x: body.velocity.x * 34 / speed, y: body.velocity.y * 34 / speed });
       });
       Engine.update(engine, 1000 / 60); accumulator -= 1000 / 60;
     }
@@ -114,17 +114,41 @@ export function startLogoPile(wall: HTMLElement) {
     if (tap?.id === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) tap = null;
     if (grab?.id !== event.pointerId) return;
     const point = local(event);
-    grab.joint.pointA = { x: Math.max(0, Math.min(width, point.x)), y: Math.max(ceiling + grab.radius, Math.min(height, point.y)) };
+    grab.joint.pointA = { x: Math.max(0, Math.min(width, point.x)), y: Math.min(height, point.y) };
     Sleeping.set(grab.joint.bodyB!, false);
   }
   const ripple = document.createElement("div");
   ripple.className = "floor-ripple"; wall.appendChild(ripple);
   let rippleAnimation: Animation | undefined;
+  // Easter egg: five quick floor taps launch every logo and show a short message.
+  const egg = document.createElement("div");
+  egg.className = "floor-egg"; egg.textContent = "You found it."; wall.appendChild(egg);
+  let eggAnimation: Animation | undefined;
+  const recentTaps: number[] = [];
+  function found(point: { x: number; y: number }) {
+    items.forEach(({ body }) => {
+      Sleeping.set(body, false);
+      Body.setVelocity(body, { x: (Math.random() - 0.5) * 12, y: -30 - Math.random() * 4 });
+      Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.3);
+    });
+    egg.style.left = `${point.x}px`; egg.style.top = `${point.y}px`;
+    eggAnimation?.cancel();
+    eggAnimation = egg.animate([
+      { transform: "translate(-50%, -50%) scale(0.8)", opacity: 0 },
+      { transform: "translate(-50%, -50%) scale(1)", opacity: 1, offset: 0.2 },
+      { transform: "translate(-50%, -150%) scale(1)", opacity: 0 },
+    ], { duration: 1800, easing: "ease-out" });
+    resume();
+  }
   function up(event: PointerEvent) {
     if (grab?.id === event.pointerId) release();
     if (tap?.id !== event.pointerId) return;
     tap = null;
     const point = local(event);
+    const now = performance.now();
+    recentTaps.push(now);
+    while (recentTaps.length && now - recentTaps[0] > 2000) recentTaps.shift();
+    if (recentTaps.length === 5) { recentTaps.length = 0; found(point); return; }
     items.forEach(({ body }) => {
       const distance = Math.hypot(point.x - body.position.x, point.y - body.position.y);
       const strength = Math.max(0, 1 - distance / 280);
@@ -155,6 +179,7 @@ export function startLogoPile(wall: HTMLElement) {
   document.addEventListener("visibilitychange", resume); resume();
   return () => {
     disposed = true; release(); cancelAnimationFrame(frame); rippleAnimation?.cancel(); ripple.remove();
+    eggAnimation?.cancel(); egg.remove();
     intersection.disconnect(); resize.disconnect();
     document.removeEventListener("visibilitychange", resume); window.removeEventListener("blur", blur);
     Object.entries(events).forEach(([name, handler]) => wall.removeEventListener(name, handler as EventListener));

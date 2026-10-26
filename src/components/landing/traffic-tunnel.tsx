@@ -83,9 +83,6 @@ export function TrafficTunnel() {
           conversations and measurable action.
         </p>
       </div>
-      <div className="tunnel-note">
-        Animated visual concept · explore the steps below ↓
-      </div>
     </section>
   );
 }

@@ -256,12 +256,6 @@
   flex-wrap: wrap;
   margin-top: 32px;
 }
-.page :global(.hero-note) {
-  margin-top: 25px;
-  color: #979da8;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
 .page :global(.float-tile) {
   position: absolute;
   z-index: 2;
@@ -513,18 +507,6 @@
   color: #bec9d4;
   max-width: 530px;
   margin: 0 auto;
-}
-.page :global(.tunnel-note) {
-  position: absolute;
-  z-index: 3;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%);
-  font-size: 10px;
-  color: #8a9bb0;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 .page :global(.beam-base),
 .page :global(.beam-core),
@@ -1021,17 +1003,6 @@
   margin: 0 auto;
   max-width: 560px;
   line-height: 1.7;
-}
-.page :global(.word-scene .scene-label) {
-  position: absolute;
-  left: 50%;
-  bottom: 27px;
-  transform: translateX(-50%);
-  color: #817c9b;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 @keyframes word-reveal {
   0%,
@@ -2161,9 +2132,6 @@
 .page :global(.eyebrow-dot) {
   background: var(--gold);
 }
-.page :global(.hero-note) {
-  color: var(--muted);
-}
 /* Motion scenes retain their distinct compositions in one colour family */
 .page :global(.light-tunnel) {
   background: var(--navy-deep);
@@ -2182,9 +2150,6 @@
 }
 .page :global(.tunnel-copy p) {
   color: var(--on-dark);
-}
-.page :global(.tunnel-note) {
-  color: #b5c5dc;
 }
 .page :global(.workflow) {
   background: var(--navy-deep);
@@ -2289,9 +2254,6 @@
 }
 .page :global(.word-scene p) {
   color: var(--on-dark);
-}
-.page :global(.word-scene .scene-label) {
-  color: #b5c5dc;
 }
 
 /* Trust, outcomes, client identities and support */
@@ -3164,11 +3126,12 @@
   height: 200px;
   pointer-events: auto;
   touch-action: pan-y;
-  /* Logos may fly across the hero, in front of the copy; the hero clips them. */
+  /* Logos may fly across the hero, in front of the copy, and past its top edge. */
   contain: none;
   overflow: visible;
   z-index: 4;
 }
+.page :global(.hero.physics-ready) { overflow: visible; }
 .page :global(.floor-ripple) {
   position: absolute;
   width: 220px;
@@ -3176,6 +3139,19 @@
   border: 1px solid rgba(10, 32, 62, 0.18);
   border-radius: 50%;
   background: rgba(10, 32, 62, 0.035);
+  pointer-events: none;
+  opacity: 0;
+}
+.page :global(.floor-egg) {
+  position: absolute;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(10, 32, 62, 0.14);
+  color: var(--navy);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
   pointer-events: none;
   opacity: 0;
 }
@@ -3188,5 +3164,3 @@
 .page :global(.hero .sticker-wall) {
   background: linear-gradient(0deg, #ffffffe6, #ffffff55 60%, #ffffff00);
 }
-
-.page :global(.hero .hero-note) { color: var(--navy); }
