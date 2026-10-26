@@ -464,56 +464,6 @@
   line-height: 1.75;
   font-size: 16px;
 }
-.page :global(.service-grid) {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-.page :global(.service) {
-  padding: 32px;
-  min-height: 271px;
-  border: 1px solid #eceef1;
-  border-radius: 24px;
-  background: linear-gradient(145deg, #fff, #f9fafc);
-  box-shadow: 0 12px 38px rgba(24, 39, 67, 0.035);
-  transition:
-    transform 0.25s,
-    box-shadow 0.25s;
-}
-.page :global(.service:hover) {
-  transform: translateY(-5px);
-  box-shadow: 0 21px 56px rgba(24, 39, 67, 0.09);
-}
-.page :global(.service-icon) {
-  width: 47px;
-  height: 47px;
-  border-radius: 15px;
-  display: grid;
-  place-items: center;
-  background: #edf0ff;
-  color: #5262d0;
-  margin-bottom: 26px;
-  font-size: 20px;
-}
-.page :global(.service:nth-child(2) .service-icon) {
-  background: #fff0f7;
-  color: #be4fa1;
-}
-.page :global(.service:nth-child(3) .service-icon) {
-  background: #e6f6f2;
-  color: #198d7a;
-}
-.page :global(.service h3) {
-  font-size: 21px;
-  letter-spacing: -0.035em;
-  margin-bottom: 10px;
-}
-.page :global(.service p) {
-  font-size: 14px;
-  line-height: 1.7;
-  color: #707786;
-  margin: 0;
-}
 .page :global(.workflow) {
   position: relative;
   overflow: hidden;
@@ -1797,16 +1747,6 @@
   .page :global(.section-head) {
     margin-bottom: 30px;
   }
-  .page :global(.service-grid) {
-    grid-template-columns: 1fr;
-  }
-  .page :global(.service) {
-    min-height: unset;
-    padding: 25px;
-  }
-  .page :global(.service-icon) {
-    margin-bottom: 17px;
-  }
   .page :global(.light-tunnel) {
     height: 760px;
     min-height: 650px;
@@ -2275,26 +2215,6 @@
 .page :global(.hero-note) {
   color: var(--muted);
 }
-.page :global(.service) {
-  border-color: var(--line);
-  border-radius: var(--radius-card);
-  background: linear-gradient(145deg, #fff, var(--surface-soft));
-  box-shadow: var(--shadow-card);
-}
-.page :global(.service-icon),
-.page :global(.service:nth-child(2) .service-icon),
-.page :global(.service:nth-child(3) .service-icon) {
-  background: #f3ebd6;
-  color: var(--gold-ink);
-}
-.page :global(.service:nth-child(2) .service-icon) {
-  background: #eaf0f8;
-  color: var(--blue);
-}
-.page :global(.service p) {
-  color: var(--muted);
-}
-
 /* Motion scenes retain their distinct compositions in one colour family */
 .page :global(.light-tunnel) {
   background: var(--navy-deep);
