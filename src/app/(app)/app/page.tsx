@@ -23,7 +23,10 @@ import { createClient } from "@/lib/supabase/server";
 import { PerformancePanel } from "@/components/dashboard/performance-panel";
 import { OutcomesPanel } from "@/components/dashboard/outcomes-panel";
 import { PeriodFilter } from "@/components/dashboard/period-filter";
+import { MarketingStudio } from "@/components/studio/marketing-studio";
 import { Button } from "@/components/ui/button";
+import { getStudioSnapshot } from "@/lib/studio/snapshot";
+import type { StudioSnapshot } from "@/lib/studio/types";
 
 export default async function DashboardPage({
   searchParams,
@@ -39,12 +42,19 @@ export default async function DashboardPage({
   const active = await getActiveOrganisation(orgs);
   let data = null;
   let error = false;
+  let studio: StudioSnapshot | null = null;
+  let studioError = false;
   if (active) {
-    try {
-      data = await getOverview(await createClient(), active.id, days);
-    } catch {
-      error = true;
-    }
+    const db = await createClient();
+    // Independent reads: a studio failure must not hide the overview, or vice versa.
+    const [overview, snapshot] = await Promise.allSettled([
+      getOverview(db, active.id, days),
+      getStudioSnapshot(db, active.id),
+    ]);
+    if (overview.status === "fulfilled") data = overview.value;
+    else error = true;
+    if (snapshot.status === "fulfilled") studio = snapshot.value;
+    else studioError = true;
   }
   const automation = data?.settings;
   const automationState = automation?.paused
@@ -218,6 +228,16 @@ export default async function DashboardPage({
           </Link>
         ))}
       </section>
+      <MarketingStudio
+        key={active?.id ?? "no-business"}
+        organisationId={active?.id ?? null}
+        businessName={active?.name ?? "No business selected"}
+        initialSnapshot={studio}
+        initialError={studioError}
+        organisations={orgs}
+        active={active}
+        canAddBusiness={Boolean(user?.is_platform_admin)}
+      />
       <div className="overview-grid">
         <section
           className="glass-panel review-panel"
